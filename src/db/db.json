@@ -1,0 +1,200 @@
+{
+  "users": [
+    {
+      "id": "u1",
+      "username": "admin",
+      "email": "admin@absensi.com",
+      "password": "admin",
+      "role": "admin",
+      "status": "approved",
+      "division": "Management",
+      "position": "Director",
+      "photoUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+      "leaveQuota": {
+        "libur": 12,
+        "telat": 5,
+        "telatDarurat": 3,
+        "pulangCepat": 5
+      },
+      "lastCheckInDevice": "PC-Admin-01",
+      "currentLat": -6.2088,
+      "currentLng": 106.8456,
+      "lastActiveAt": "2026-07-09T23:45:00.000Z"
+    },
+    {
+      "id": "u2",
+      "username": "supervisor",
+      "email": "spv@absensi.com",
+      "password": "password",
+      "role": "supervisor",
+      "status": "approved",
+      "division": "Operations",
+      "position": "Supervisor Gudang",
+      "photoUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
+      "leaveQuota": {
+        "libur": 12,
+        "telat": 5,
+        "telatDarurat": 3,
+        "pulangCepat": 5
+      },
+      "lastCheckInDevice": "Android-Device-02",
+      "currentLat": -6.2349,
+      "currentLng": 106.9896,
+      "lastActiveAt": "2026-07-09T23:30:00.000Z"
+    },
+    {
+      "id": "u3",
+      "username": "budi",
+      "email": "budi@absensi.com",
+      "password": "password",
+      "role": "worker",
+      "status": "approved",
+      "division": "Logistics",
+      "position": "Kurir Delivery",
+      "photoUrl": "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150",
+      "leaveQuota": {
+        "libur": 10,
+        "telat": 4,
+        "telatDarurat": 2,
+        "pulangCepat": 3
+      },
+      "lastCheckInDevice": "Android-Budi-S21",
+      "currentLat": -6.2091,
+      "currentLng": 106.8461,
+      "lastActiveAt": "2026-07-09T23:05:00.000Z"
+    },
+    {
+      "id": "u4",
+      "username": "siti",
+      "email": "siti@absensi.com",
+      "password": "password",
+      "role": "worker",
+      "status": "pending",
+      "division": "Operations",
+      "position": "Staff Gudang",
+      "photoUrl": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
+      "leaveQuota": {
+        "libur": 12,
+        "telat": 5,
+        "telatDarurat": 3,
+        "pulangCepat": 5
+      }
+    }
+  ],
+  "attendanceRecords": [
+    {
+      "id": "r1",
+      "userId": "u3",
+      "username": "budi",
+      "division": "Logistics",
+      "date": "2026-07-08",
+      "checkInTime": "07:45:12",
+      "checkInLat": -6.2089,
+      "checkInLng": 106.8458,
+      "checkInLocationName": "Kantor Pusat Jakarta",
+      "checkOutTime": "17:05:30",
+      "checkOutLat": -6.2088,
+      "checkOutLng": 106.8456,
+      "checkOutLocationName": "Kantor Pusat Jakarta",
+      "isLate": false,
+      "isEarlyOut": false,
+      "isOutsideGeofence": false,
+      "status": "approved",
+      "fineAmount": 0,
+      "bonusAmount": 25000,
+      "note": "Hadir tepat waktu di area kantor"
+    },
+    {
+      "id": "r2",
+      "userId": "u3",
+      "username": "budi",
+      "division": "Logistics",
+      "date": "2026-07-09",
+      "checkInTime": "08:15:44",
+      "checkInLat": -6.2088,
+      "checkInLng": 106.8456,
+      "checkInLocationName": "Kantor Pusat Jakarta",
+      "checkOutTime": "17:01:10",
+      "checkOutLat": -6.2088,
+      "checkOutLng": 106.8456,
+      "checkOutLocationName": "Kantor Pusat Jakarta",
+      "isLate": true,
+      "isEarlyOut": false,
+      "isOutsideGeofence": false,
+      "status": "approved",
+      "fineAmount": 50000,
+      "bonusAmount": 0,
+      "note": "Terlambat masuk 15 menit"
+    }
+  ],
+  "leaveRequests": [
+    {
+      "id": "l1",
+      "userId": "u3",
+      "username": "budi",
+      "division": "Logistics",
+      "date": "2026-07-15",
+      "status": "approved",
+      "notes": "Menghadiri pernikahan keluarga"
+    },
+    {
+      "id": "l2",
+      "userId": "u3",
+      "username": "budi",
+      "division": "Logistics",
+      "date": "2026-07-20",
+      "status": "pending",
+      "notes": "Pemeriksaan kesehatan rutin"
+    }
+  ],
+  "locations": [
+    {
+      "id": "loc1",
+      "name": "Kantor Pusat Jakarta",
+      "lat": -6.2088,
+      "lng": 106.8456,
+      "radiusMeter": 150
+    },
+    {
+      "id": "loc2",
+      "name": "Gudang Bekasi Timur",
+      "lat": -6.2349,
+      "lng": 106.9896,
+      "radiusMeter": 200
+    }
+  ],
+  "announcements": [
+    {
+      "id": "a1",
+      "title": "Sosialisasi Disiplin Kerja & Aturan Absensi",
+      "content": "Diberitahukan kepada seluruh pekerja untuk selalu melakukan check-in tepat waktu sebelum jam 08:00 pagi. Jika berada di luar wilayah geofence kantor/gudang, harap melakukan liveness check berupa foto lokasi terkini untuk verifikasi admin.",
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "createdBy": "admin"
+    }
+  ],
+  "config": {
+    "branding": {
+      "name": "AbsenPro Nusantara",
+      "logoUrl": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=100&h=100&fit=crop&q=80"
+    },
+    "dendaTelat": 50000,
+    "bonusTepatWaktu": 25000,
+    "bonusDisiplinBulanan": 200000,
+    "divisions": [
+      "Management",
+      "Operations",
+      "Logistics",
+      "Finance",
+      "Security"
+    ],
+    "positions": [
+      "Director",
+      "Supervisor Gudang",
+      "Kurir Delivery",
+      "Staff Gudang",
+      "Admin Operasional",
+      "Security Guard"
+    ]
+  }
+}

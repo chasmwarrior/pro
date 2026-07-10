@@ -1,0 +1,6 @@
+{
+  "name": "Platform Absensi Profesional",
+  "description": "Platform absensi karyawan profesional dengan fitur verifikasi liveness, manajemen cuti, lokasi kantor/gudang dinamis, radar karyawan realtime, dan ekspor data.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
