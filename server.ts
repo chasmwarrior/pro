@@ -581,7 +581,7 @@ app.get('/api/leaves', (req, res) => {
 });
 
 app.post('/api/leaves/apply', (req, res) => {
-  const { userId, date, notes } = req.body;
+  const { userId, date, dates, notes } = req.body;
   const db = readDB();
 
   const user = db.users.find((u: any) => u.id === userId);
@@ -589,64 +589,110 @@ app.post('/api/leaves/apply', (req, res) => {
     return res.status(404).json({ error: 'User tidak ditemukan.' });
   }
 
-  // Prevent retroactive leave requests
+  // Support both single "date" and array "dates"
+  const targetDates: string[] = Array.isArray(dates) ? dates : (date ? [date] : []);
+  if (targetDates.length === 0) {
+    return res.status(400).json({ error: 'Harap pilih tanggal pengajuan libur.' });
+  }
+
   const todayStr = new Date().toISOString().split('T')[0];
-  if (date < todayStr) {
-    return res.status(400).json({ error: 'Tanggal libur yang sudah lewat tidak dapat dipilih.' });
+
+  // Calculate current pending requests for quota checking
+  const pendingCount = db.leaveRequests.filter(
+    (l: any) => l.userId === userId && l.status === 'pending'
+  ).length;
+
+  const currentAvailableQuota = user.leaveQuota.libur - pendingCount;
+  if (targetDates.length > currentAvailableQuota) {
+    return res.status(400).json({ 
+      error: `Jatah libur Anda tidak mencukupi. Sisa jatah (setelah dikurangi pending): ${currentAvailableQuota} hari. Anda mencoba mengajukan ${targetDates.length} hari.` 
+    });
   }
 
-  // Check quota
-  if (user.leaveQuota.libur <= 0) {
-    return res.status(400).json({ error: 'Kuota sisa jatah libur/cuti Anda sudah habis.' });
-  }
+  // Process all dates
+  const results = [];
+  let successfulSubmissions = 0;
 
-  // Check locks/bookings for same division
-  // Tanggal yang sudah di booking terlebih dahulu oleh pekerja lain yang berdivisi sama
-  const existingBookings = db.leaveRequests.filter(
-    (l: any) => l.date === date && l.status === 'approved'
-  );
+  for (const tDate of targetDates) {
+    // 1. Prevent retroactive
+    if (tDate < todayStr) {
+      results.push({ date: tDate, success: false, error: 'Tanggal libur yang sudah lewat tidak dapat dipilih.' });
+      continue;
+    }
 
-  // Check division matches
-  const sameDivisionConflict = existingBookings.some((booking: any) => {
-    const bUser = db.users.find((u: any) => u.id === booking.userId);
-    return bUser && bUser.division === user.division;
-  });
+    // 2. Check if duplicate
+    const duplicate = db.leaveRequests.find(
+      (l: any) => l.userId === userId && l.date === tDate && l.status !== 'rejected'
+    );
+    if (duplicate) {
+      results.push({ date: tDate, success: false, error: 'Anda sudah mengajukan libur/cuti pada tanggal ini.' });
+      continue;
+    }
 
-  const newRequest = {
-    id: 'leave_' + Math.random().toString(36).substr(2, 9),
-    userId,
-    username: user.username,
-    division: user.division,
-    date,
-    status: sameDivisionConflict ? 'pending' : 'approved', // If conflict, must await manual review, otherwise auto lock
-    notes
-  };
+    // 3. Check division conflict
+    const existingBookings = db.leaveRequests.filter(
+      (l: any) => l.date === tDate && l.status === 'approved'
+    );
+    const sameDivisionConflict = existingBookings.some((booking: any) => {
+      const bUser = db.users.find((u: any) => u.id === booking.userId);
+      return bUser && bUser.division === user.division;
+    });
 
-  db.leaveRequests.push(newRequest);
+    const newRequest = {
+      id: 'leave_' + Math.random().toString(36).substr(2, 9),
+      userId,
+      username: user.username,
+      division: user.division,
+      date: tDate,
+      status: sameDivisionConflict ? 'pending' : 'approved',
+      notes: notes || ''
+    };
 
-  // Deduct quota if immediately approved
-  if (newRequest.status === 'approved') {
-    user.leaveQuota.libur -= 1;
+    db.leaveRequests.push(newRequest);
+
+    if (newRequest.status === 'approved') {
+      user.leaveQuota.libur -= 1;
+    }
+
+    successfulSubmissions++;
+    results.push({
+      date: tDate,
+      success: true,
+      conflict: sameDivisionConflict,
+      request: newRequest
+    });
   }
 
   writeDB(db);
 
-  if (sameDivisionConflict) {
-    // Show warn popup trigger
-    const firstBooker = db.users.find((u: any) => u.id === existingBookings[0].userId)?.username || 'rekan kerja';
-    return res.json({
-      success: true,
-      conflict: true,
-      request: newRequest,
-      message: `tanggal ini sudah di lock/dibooking oleh pekerja ${firstBooker}, ajukan ke admin untuk di tinjau`
-    });
+  if (successfulSubmissions === 0) {
+    return res.status(400).json({ error: 'Gagal memproses tanggal yang dipilih.', details: results });
+  }
+
+  const conflicts = results.filter(r => r.success && r.conflict);
+  const approved = results.filter(r => r.success && !r.conflict);
+
+  let responseMessage = '';
+  if (targetDates.length === 1) {
+    const singleRes = results[0];
+    if (singleRes.success) {
+      if (singleRes.conflict) {
+        responseMessage = `Tanggal ini sudah di-lock/dibooking oleh rekan kerja se-divisi. Pengajuan dikirim ke admin untuk ditinjau.`;
+      } else {
+        responseMessage = `Pengajuan libur berhasil disetujui dan dikunci.`;
+      }
+    } else {
+      return res.status(400).json({ error: singleRes.error });
+    }
+  } else {
+    responseMessage = `Berhasil mengajukan ${successfulSubmissions} hari libur. (${approved.length} langsung disetujui, ${conflicts.length} perlu persetujuan manual karena konflik divisi).`;
   }
 
   res.json({
     success: true,
-    conflict: false,
-    request: newRequest,
-    message: 'Pengajuan libur berhasil disetujui dan dikunci.'
+    conflict: conflicts.length > 0,
+    message: responseMessage,
+    results
   });
 });
 
@@ -821,7 +867,7 @@ app.post('/api/admin/unbind-device', (req, res) => {
     return res.status(404).json({ error: 'User tidak ditemukan.' });
   }
 
-  db.users[idx].lastCheckInDevice = null;
+  delete db.users[idx].lastCheckInDevice;
   writeDB(db);
   res.json({ success: true, user: db.users[idx] });
 });

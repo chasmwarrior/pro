@@ -3,7 +3,7 @@ import {
   Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
-  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download
+  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapLibreView from './components/MapLibreView';
@@ -14,9 +14,57 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 export default function App() {
   // 1. App State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox'>('dashboard');
   const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset'>('radar');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Custom Dialog Overlay State
+  const [customDialog, setCustomDialog] = useState<{
+    isOpen: boolean;
+    type: 'alert' | 'confirm';
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  }>({
+    isOpen: false,
+    type: 'alert',
+    title: '',
+    message: ''
+  });
+
+  const showCustomAlert = (message: string, title = "Pemberitahuan") => {
+    setCustomDialog({
+      isOpen: true,
+      type: 'alert',
+      title,
+      message,
+      onConfirm: () => setCustomDialog(prev => ({ ...prev, isOpen: false }))
+    });
+  };
+
+  const showCustomConfirm = (message: string, onConfirm: () => void, title = "Konfirmasi") => {
+    setCustomDialog({
+      isOpen: true,
+      type: 'confirm',
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setCustomDialog(prev => ({ ...prev, isOpen: false }));
+      },
+      onCancel: () => {
+        setCustomDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
+  // Live Permission Statuses
+  const [permissionStates, setPermissionStates] = useState({
+    gps: 'prompt', // 'granted' | 'denied' | 'prompt'
+    camera: 'prompt', // 'granted' | 'denied' | 'prompt'
+    storage: 'granted' // simulated default
+  });
 
   // 2. Data State
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -89,6 +137,60 @@ export default function App() {
   const [isBulkApprovingAttendance, setIsBulkApprovingAttendance] = useState(false);
   const [leaveRemarks, setLeaveRemarks] = useState<Record<string, string>>({});
   const [isAutoRefreshRadar, setIsAutoRefreshRadar] = useState<boolean>(true);
+  const [isAnnouncementDismissed, setIsAnnouncementDismissed] = useState<boolean>(false);
+  const [theme, setTheme] = useState<'blue' | 'emerald' | 'dark' | 'rose'>(() => {
+    return (localStorage.getItem('app-theme') as 'blue' | 'emerald' | 'dark' | 'rose') || 'blue';
+  });
+
+  // Apply theme dynamically using root CSS variables overriding Tailwind classes
+  useEffect(() => {
+    localStorage.setItem('app-theme', theme);
+    const root = document.documentElement;
+    if (theme === 'emerald') {
+      root.style.setProperty('--color-blue-50', '#f0fdf4');
+      root.style.setProperty('--color-blue-100', '#dcfce7');
+      root.style.setProperty('--color-blue-200', '#bbf7d0');
+      root.style.setProperty('--color-blue-500', '#10b981');
+      root.style.setProperty('--color-blue-600', '#059669');
+      root.style.setProperty('--color-blue-700', '#047857');
+      root.style.setProperty('--color-blue-800', '#065f46');
+    } else if (theme === 'rose') {
+      root.style.setProperty('--color-blue-50', '#fff1f2');
+      root.style.setProperty('--color-blue-100', '#ffe4e6');
+      root.style.setProperty('--color-blue-200', '#fecdd3');
+      root.style.setProperty('--color-blue-500', '#f43f5e');
+      root.style.setProperty('--color-blue-600', '#e11d48');
+      root.style.setProperty('--color-blue-700', '#be123c');
+      root.style.setProperty('--color-blue-800', '#9f1239');
+    } else if (theme === 'dark') {
+      root.style.setProperty('--color-blue-50', '#f1f5f9');
+      root.style.setProperty('--color-blue-100', '#e2e8f0');
+      root.style.setProperty('--color-blue-200', '#cbd5e1');
+      root.style.setProperty('--color-blue-500', '#64748b');
+      root.style.setProperty('--color-blue-600', '#475569');
+      root.style.setProperty('--color-blue-700', '#334155');
+      root.style.setProperty('--color-blue-800', '#1e293b');
+    } else {
+      root.style.removeProperty('--color-blue-50');
+      root.style.removeProperty('--color-blue-100');
+      root.style.removeProperty('--color-blue-200');
+      root.style.removeProperty('--color-blue-500');
+      root.style.removeProperty('--color-blue-600');
+      root.style.removeProperty('--color-blue-700');
+      root.style.removeProperty('--color-blue-800');
+    }
+  }, [theme]);
+
+  // Auto dismiss active announcement banner after 10 seconds
+  useEffect(() => {
+    if (announcements.length > 0) {
+      setIsAnnouncementDismissed(false);
+      const timer = setTimeout(() => {
+        setIsAnnouncementDismissed(true);
+      }, 10000); // 10 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [announcements]);
 
   // Filter for employee's history tab
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
@@ -136,9 +238,45 @@ export default function App() {
     return () => clearInterval(interval);
   }, [adminSubTab, isAutoRefreshRadar]);
 
-  // Track coordinates in background
+  // Track coordinates in background and manage global events
   useEffect(() => {
     trackDeviceLocation();
+
+    // Query initial permission statuses if browser supports it
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' as PermissionName }).then((status) => {
+        setPermissionStates(prev => ({ ...prev, gps: status.state }));
+        status.onchange = () => {
+          setPermissionStates(prev => ({ ...prev, gps: status.state }));
+        };
+      }).catch(() => {});
+
+      navigator.permissions.query({ name: 'camera' as PermissionName }).then((status) => {
+        setPermissionStates(prev => ({ ...prev, camera: status.state }));
+        status.onchange = () => {
+          setPermissionStates(prev => ({ ...prev, camera: status.state }));
+        };
+      }).catch(() => {});
+    }
+
+    // Intercept benign WebSocket / Vite HMR unhandled promise rejections
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const msg = event.reason?.message || event.reason?.toString() || '';
+      if (
+        msg.includes('WebSocket') || 
+        msg.includes('websocket') || 
+        msg.includes('vite') || 
+        msg.includes('HMR')
+      ) {
+        event.preventDefault();
+        console.log('Intercepted and prevented benign websocket/HMR rejection:', msg);
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
   }, []);
 
   const generateDeviceFingerprint = () => {
@@ -168,23 +306,63 @@ export default function App() {
   };
 
   const trackDeviceLocation = () => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+      return;
+    }
     setIsLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setDeviceLat(pos.coords.latitude);
         setDeviceLng(pos.coords.longitude);
+        setPermissionStates(prev => ({ ...prev, gps: 'granted' }));
         setIsLocating(false);
       },
       (err) => {
-        console.warn("Geolocation permission not approved or unavailable. Emulating starting position.");
         // Fallback to coordinates
         setDeviceLat(-6.2088);
         setDeviceLng(106.8456);
+        setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
         setIsLocating(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
+  };
+
+  const requestGPSPermission = () => {
+    if (!navigator.geolocation) {
+      setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+      showCustomAlert("Browser Anda tidak mendukung layanan lokasi/GPS.", "Tidak Didukung");
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDeviceLat(pos.coords.latitude);
+        setDeviceLng(pos.coords.longitude);
+        setPermissionStates(prev => ({ ...prev, gps: 'granted' }));
+        setIsLocating(false);
+        showCustomAlert("Akses lokasi (GPS) berhasil diizinkan secara penuh. Sistem sekarang dapat memvalidasi presensi geofence Anda.", "Izin GPS Aktif");
+      },
+      (err) => {
+        setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+        setIsLocating(false);
+        showCustomAlert("Akses lokasi ditolak atau gagal didapatkan. Pastikan fitur lokasi perangkat Anda aktif dan izinkan akses di browser Anda.", "Izin GPS Ditolak");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const requestCameraPermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      stream.getTracks().forEach(track => track.stop());
+      setPermissionStates(prev => ({ ...prev, camera: 'granted' }));
+      showCustomAlert("Izin kamera berhasil diberikan! Anda sekarang siap melakukan verifikasi liveness foto.", "Izin Kamera Aktif");
+    } catch (err) {
+      setPermissionStates(prev => ({ ...prev, camera: 'denied' }));
+      showCustomAlert("Gagal mengakses kamera. Silakan periksa izin kamera pada pengaturan browser atau sistem operasi Anda.", "Izin Kamera Ditolak");
+    }
   };
 
   // --------------------------------------------------------------------------
@@ -487,17 +665,32 @@ export default function App() {
     }
   };
 
-  const handleApplyLeave = async (date: string, notes: string) => {
+  const handleApplyLeave = async (dates: string[], notes: string) => {
     if (!currentUser) return { success: false, message: 'Tidak diijinkan', conflict: false };
 
     const res = await fetch('/api/leaves/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: currentUser.id, date, notes })
+      body: JSON.stringify({ userId: currentUser.id, dates, notes: notes || '' })
     });
     const data = await res.json();
     fetchLeaveRequests();
-    return { success: res.ok, message: data.message, conflict: !!data.conflict };
+    
+    if (res.ok) {
+      // Refresh current user info so that remaining leave quotas are updated instantly in the UI
+      const usersRes = await fetch('/api/users');
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        const updatedMe = users.find((u: any) => u.id === currentUser.id);
+        if (updatedMe) {
+          setCurrentUser(updatedMe);
+        }
+      }
+      if (currentUser.role === 'admin' || currentUser.role === 'supervisor') {
+        fetchAllWorkers();
+      }
+    }
+    return { success: res.ok, message: data.message || data.error || 'Gagal mengajukan libur', conflict: !!data.conflict };
   };
 
   // --------------------------------------------------------------------------
@@ -519,6 +712,24 @@ export default function App() {
       setProfileNewPassword('');
     } else {
       setProfileMessage({ type: 'error', text: 'Gagal mengubah password.' });
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        setProfileMessage({ type: 'error', text: 'Ukuran file gambar maksimal 5MB.' });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setProfilePhotoUrl(reader.result);
+          setProfileMessage({ type: 'success', text: 'Gambar berhasil dimuat dari perangkat. Klik "Simpan" untuk memperbarui foto profil.' });
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -720,15 +931,19 @@ export default function App() {
   };
 
   const handleDeleteLocation = async (id: string) => {
-    if (!confirm("Hapus lokasi kerja ini dari geofence?")) return;
-    const res = await fetch('/api/locations/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id })
+    showCustomConfirm("Hapus lokasi kerja ini dari geofence?", async () => {
+      const res = await fetch('/api/locations/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        showCustomAlert("Lokasi berhasil dihapus.", "Sukses");
+        fetchLocations();
+      } else {
+        showCustomAlert("Gagal menghapus lokasi.", "Gagal");
+      }
     });
-    if (res.ok) {
-      fetchLocations();
-    }
   };
 
   // announcements CRUD
@@ -747,7 +962,7 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert("Pengumuman berhasil disiarkan.");
+      showCustomAlert("Pengumuman berhasil disiarkan.", "Sukses");
       setNewAnnTitle('');
       setNewAnnContent('');
       setNewAnnStartDate('');
@@ -756,30 +971,56 @@ export default function App() {
     }
   };
 
-  const handleDeleteAnnouncement = async (id: string) => {
-    if (!confirm("Hapus pengumuman ini?")) return;
-    const res = await fetch('/api/announcements/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id })
+  const handleDeleteAnnouncement = (id: string) => {
+    showCustomConfirm("Hapus pengumuman ini?", async () => {
+      try {
+        const res = await fetch('/api/announcements/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        if (res.ok) {
+          showCustomAlert("Pengumuman berhasil dihapus.", "Sukses");
+          setAnnouncements(prev => prev.filter(a => a.id !== id));
+          fetchAnnouncements();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showCustomAlert("Gagal menghapus pengumuman: " + (err.error || "Kesalahan server."), "Gagal");
+        }
+      } catch (e) {
+        showCustomAlert("Terjadi kesalahan jaringan saat menghapus pengumuman.", "Gagal");
+      }
     });
-    if (res.ok) {
-      fetchAnnouncements();
-    }
   };
 
   // Device unbinding
-  const handleUnbindUserDevice = async (userId: string) => {
-    if (!confirm("Unbind perangkat karyawan ini agar mereka bisa check-in menggunakan perangkat baru?")) return;
-    const res = await fetch('/api/admin/unbind-device', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId })
+  const handleUnbindUserDevice = (userId: string) => {
+    showCustomConfirm("Unbind perangkat karyawan ini agar mereka bisa check-in menggunakan perangkat baru?", async () => {
+      try {
+        const res = await fetch('/api/admin/unbind-device', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
+        });
+        if (res.ok) {
+          showCustomAlert("Perangkat berhasil di-unbind.", "Sukses");
+          fetchAllWorkers();
+          if (currentUser && currentUser.id === userId) {
+            setCurrentUser(prev => {
+              if (!prev) return null;
+              const updated = { ...prev };
+              delete updated.lastCheckInDevice;
+              return updated;
+            });
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showCustomAlert("Gagal melakukan unbind device: " + (err.error || "Kesalahan server."), "Gagal");
+        }
+      } catch (e) {
+        showCustomAlert("Terjadi kesalahan jaringan saat melakukan unbind.", "Gagal");
+      }
     });
-    if (res.ok) {
-      alert("Perangkat berhasil di-unbind.");
-      fetchAllWorkers();
-    }
   };
 
   // Dynamic Fines & Brand Configurations updates
@@ -800,26 +1041,26 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert("Pengaturan platform berhasil disimpan.");
+      showCustomAlert("Pengaturan platform berhasil disimpan.", "Sukses");
       fetchConfig();
     }
   };
 
   // Factory reset database
-  const handleFactoryReset = async () => {
-    if (!confirm("PERINGATAN KRITIS:\nApakah Anda yakin ingin melakukan RESET PABRIK? Semua rekap absensi karyawan, pengajuan libur, akun pekerja baru, dan pengaturan kustom akan dihapus permanen!")) {
-      return;
-    }
+  const handleFactoryReset = () => {
+    showCustomConfirm("PERINGATAN KRITIS:\nApakah Anda yakin ingin melakukan RESET PABRIK? Semua rekap absensi karyawan, pengajuan libur, akun pekerja baru, dan pengaturan kustom akan dihapus permanen!", async () => {
+      const res = await fetch('/api/admin/factory-reset', {
+        method: 'POST'
+      });
 
-    const res = await fetch('/api/admin/factory-reset', {
-      method: 'POST'
-    });
-
-    if (res.ok) {
-      alert("Platform berhasil di-reset ke data bawaan pabrik. Halaman akan dimuat ulang.");
-      handleLogout();
-      window.location.reload();
-    }
+      if (res.ok) {
+        showCustomAlert("Platform berhasil di-reset ke data bawaan pabrik. Halaman akan dimuat ulang.", "Sukses");
+        setTimeout(() => {
+          handleLogout();
+          window.location.reload();
+        }, 1500);
+      }
+    }, "Peringatan Kritis");
   };
 
   // Helpers
@@ -975,6 +1216,22 @@ export default function App() {
               </div>
             </div>
 
+            {/* Theme Selector Widget */}
+            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 shrink-0 shadow-inner">
+              <Palette className="w-3.5 h-3.5 text-blue-600 ml-1 shrink-0" />
+              <select
+                value={theme}
+                onChange={(e) => setTheme(e.target.value as any)}
+                className="bg-transparent border-none text-[10px] font-bold text-slate-700 outline-none pr-1 cursor-pointer"
+                title="Pilih Tema Tampilan"
+              >
+                <option value="blue">🔵 Biru</option>
+                <option value="emerald">🟢 Hijau</option>
+                <option value="rose">🔴 Mawar</option>
+                <option value="dark">⚫ Slate</option>
+              </select>
+            </div>
+
             {/* Profile Dropdown Badge */}
             <div className="flex items-center gap-2 bg-slate-50 p-1 pr-3 border border-slate-200 rounded-full">
               <img
@@ -1005,7 +1262,7 @@ export default function App() {
       {/* --------------------------------------------------------------------------
          ANNOUNCEMENT BAR FOR WORKERS
          -------------------------------------------------------------------------- */}
-      {currentUser && activeAnnouncements.length > 0 && (
+      {currentUser && activeAnnouncements.length > 0 && !isAnnouncementDismissed && (
         <div className="bg-amber-50 border-b border-amber-100 px-6 py-2.5 flex items-center gap-3 animate-fade-in text-slate-700 text-xs">
           <Bell className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
           <div className="overflow-hidden flex-1">
@@ -1014,7 +1271,15 @@ export default function App() {
               {activeAnnouncements[0].title} — {activeAnnouncements[0].content}
             </span>
           </div>
-          <span className="text-[10px] text-slate-400 font-mono shrink-0">Baku s/d {activeAnnouncements[0].endDate}</span>
+          <span className="text-[10px] text-slate-400 font-mono shrink-0 mr-1">Baku s/d {activeAnnouncements[0].endDate}</span>
+          <button
+            type="button"
+            onClick={() => setIsAnnouncementDismissed(true)}
+            className="p-1 hover:bg-amber-100 rounded-full text-amber-500 hover:text-amber-800 transition cursor-pointer shrink-0"
+            title="Tutup Pengumuman"
+          >
+            <X className="w-3 h-3" />
+          </button>
         </div>
       )}
 
@@ -1275,6 +1540,27 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setActiveTab('inbox')}
+              title="Inbox Pengumuman"
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
+                activeTab === 'inbox'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Bell className="w-4 h-4 shrink-0" />
+                <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Inbox Pengumuman</span>
+              </div>
+              {activeAnnouncements.length > 0 && (
+                <span className="bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 leading-none">
+                  {activeAnnouncements.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('profile')}
               title="Profil & Password"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
@@ -1331,6 +1617,64 @@ export default function App() {
                ========================================================================= */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fade-in">
+
+                {/* ----------------------------------------------------------------------
+                   DEVICE PERMISSIONS BANNER / COMPONENT
+                   ---------------------------------------------------------------------- */}
+                <div className="bg-gradient-to-r from-slate-50 to-blue-50/30 border border-slate-200 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+                  <div className="space-y-1">
+                    <h4 className="font-display font-bold text-xs text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      <span>Manajer Hak Akses & Keamanan Perangkat</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Aplikasi ini memerlukan beberapa izin perangkat agar fitur absensi geofence, deteksi liveness wajah, dan unggahan foto profil dapat berfungsi secara legal dan aman.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2.5 items-center">
+                    {/* GPS Permission Pill */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
+                      <MapPin className={`w-3.5 h-3.5 ${permissionStates.gps === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
+                      <span className="font-medium text-slate-600">GPS/Lokasi:</span>
+                      {permissionStates.gps === 'granted' ? (
+                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={requestGPSPermission}
+                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
+                        >
+                          Minta Izin
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Camera Permission Pill */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
+                      <Camera className={`w-3.5 h-3.5 ${permissionStates.camera === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
+                      <span className="font-medium text-slate-600">Kamera:</span>
+                      {permissionStates.camera === 'granted' ? (
+                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={requestCameraPermission}
+                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
+                        >
+                          Minta Izin
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Storage / Gallery Pill */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
+                      <Upload className={`w-3.5 h-3.5 text-emerald-500`} />
+                      <span className="font-medium text-slate-600">Galeri/File:</span>
+                      <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Tersedia</span>
+                    </div>
+                  </div>
+                </div>
                 
                 {/* Geofence / Check-In Live Module */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1373,6 +1717,65 @@ export default function App() {
                           <span className="text-slate-700 font-semibold">
                             {currentUser.lastCheckInDevice ? '🔒 Terkunci' : '🔓 Belum Dikunci'}
                           </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Geolocation Denied / Emulated Fallback */}
+                    {permissionStates.gps === 'denied' && (
+                      <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 text-xs text-amber-800 animate-fade-in">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <span className="font-bold text-amber-900 block">Izin Lokasi (GPS) Terbatas / Ditolak</span>
+                            <p className="text-[10px] text-amber-700 leading-relaxed font-sans">
+                              Sistem gagal melacak lokasi asli Anda karena izin GPS ditolak browser. Untuk pengujian presensi geofence, silakan masukkan koordinat kustom Anda secara manual di bawah ini.
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2.5 pt-1">
+                          <div className="space-y-1">
+                            <label className="block text-[9px] text-slate-500 font-bold font-sans uppercase tracking-wider">Latitude</label>
+                            <input
+                              type="number"
+                              step="0.000001"
+                              value={deviceLat !== null ? deviceLat : -6.2088}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                setDeviceLat(isNaN(val) ? null : val);
+                              }}
+                              className="w-full text-xs font-mono px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800"
+                              placeholder="-6.2088"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-[9px] text-slate-500 font-bold font-sans uppercase tracking-wider">Longitude</label>
+                            <input
+                              type="number"
+                              step="0.000001"
+                              value={deviceLng !== null ? deviceLng : 106.8456}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                setDeviceLng(isNaN(val) ? null : val);
+                              }}
+                              className="w-full text-xs font-mono px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800"
+                              placeholder="106.8456"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeviceLat(-6.2088);
+                              setDeviceLng(106.8456);
+                            }}
+                            className="px-2.5 py-1 bg-white hover:bg-slate-50 text-[10px] font-semibold text-slate-600 border border-slate-200 rounded-md transition cursor-pointer shadow-xs"
+                          >
+                            Reset ke Jakarta
+                          </button>
                         </div>
                       </div>
                     )}
@@ -1760,6 +2163,70 @@ export default function App() {
             )}
 
             {/* =========================================================================
+               TAB: ANNOUNCEMENT INBOX ( Kotak Masuk )
+               ========================================================================= */}
+            {activeTab === 'inbox' && (
+              <div className="max-w-4xl mx-auto space-y-6 animate-fade-in text-slate-800">
+                <div>
+                  <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider font-mono">Arsip Informasi</span>
+                  <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Kotak Masuk & Historis Pengumuman</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Daftar seluruh informasi dan regulasi resmi perusahaan yang disiarkan oleh jajaran manajemen.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {announcements.length > 0 ? (
+                    announcements.slice().reverse().map((ann) => {
+                      const todayStr = serverTime.toISOString().split('T')[0];
+                      const isFuture = todayStr < ann.startDate;
+                      const isExpired = todayStr > ann.endDate;
+                      const isActive = !isFuture && !isExpired;
+
+                      return (
+                        <div key={ann.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 p-5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                <Bell className="w-4 h-4" />
+                              </span>
+                              <div>
+                                <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
+                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">Pembuat: {ann.createdBy}</p>
+                              </div>
+                            </div>
+
+                            <span className={`px-2.5 py-1 rounded-full text-[9px] uppercase font-bold tracking-wider w-fit border ${
+                              isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : isExpired
+                                  ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}>
+                              {isActive ? '● Aktif & Valid' : isExpired ? 'Kedaluwarsa / Tidak Valid' : 'Belum Aktif'}
+                            </span>
+                          </div>
+
+                          <p className="text-slate-600 text-xs leading-relaxed whitespace-pre-wrap">{ann.content}</p>
+
+                          <div className="mt-4 flex items-center justify-between text-[10px] text-slate-400 font-mono border-t border-slate-50 pt-3">
+                            <span>📅 Periode Siar: {ann.startDate} s/d {ann.endDate}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-500 shadow-sm">
+                      <Bell className="w-12 h-12 text-slate-300 mx-auto mb-3 animate-pulse" />
+                      <p className="font-bold text-slate-800 text-sm">Kotak Masuk Kosong</p>
+                      <p className="text-xs text-slate-400 mt-1">Belum ada pengumuman resmi dari manajemen yang terbit saat ini.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================================
                TAB: USER PROFILE SETTINGS
                ========================================================================= */}
             {activeTab === 'profile' && (
@@ -1798,23 +2265,43 @@ export default function App() {
                       </h4>
                       <div className="space-y-3">
                         <p className="text-[11px] text-slate-500 leading-normal">
-                          Gunakan URL foto representatif atau foto selfie Anda yang dihosting untuk merubah avatar Anda di platform.
+                          Pilih file foto selfie dari galeri perangkat Anda atau gunakan URL foto representatif eksternal untuk mengubah avatar Anda.
                         </p>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder="https://images.unsplash.com/..."
-                            value={profilePhotoUrl}
-                            onChange={(e) => setProfilePhotoUrl(e.target.value)}
-                            className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleUpdateProfilePhoto}
-                            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg transition cursor-pointer"
-                          >
-                            Simpan
-                          </button>
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="https://images.unsplash.com/..."
+                              value={profilePhotoUrl}
+                              onChange={(e) => setProfilePhotoUrl(e.target.value)}
+                              className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleUpdateProfilePhoto}
+                              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg transition cursor-pointer shrink-0"
+                            >
+                              Simpan
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-2 border-t border-slate-100 pt-2">
+                            <span className="text-[10px] text-slate-400 uppercase font-bold font-mono">Atau:</span>
+                            <input
+                              type="file"
+                              id="profile-upload"
+                              accept="image/*"
+                              onChange={handleImageUpload}
+                              className="hidden"
+                            />
+                            <label
+                              htmlFor="profile-upload"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg text-[10px] font-bold uppercase cursor-pointer text-slate-700 transition"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Ambil dari Galeri / Kamera</span>
+                            </label>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2831,6 +3318,48 @@ export default function App() {
               </div>
             )}
           </main>
+        </div>
+      )}
+
+      {/* Custom Dialog Overlay */}
+      {customDialog.isOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in text-slate-800">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className={`p-2.5 rounded-xl shrink-0 ${
+                customDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+              }`}>
+                {customDialog.type === 'confirm' ? (
+                  <HelpCircle className="w-5 h-5 animate-pulse" />
+                ) : (
+                  <Bell className="w-5 h-5" />
+                )}
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <h4 className="font-display font-bold text-slate-900 text-sm">{customDialog.title}</h4>
+                <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{customDialog.message}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+              {customDialog.type === 'confirm' && (
+                <button
+                  type="button"
+                  onClick={customDialog.onCancel}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer"
+                >
+                  Batal
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={customDialog.onConfirm}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition cursor-pointer shadow-sm"
+              >
+                {customDialog.type === 'confirm' ? 'Ya, Lanjutkan' : 'Ok'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

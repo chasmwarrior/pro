@@ -5,7 +5,7 @@ import { User, LeaveRequest } from '../types';
 interface CalendarViewProps {
   currentUser: User;
   leaveRequests: LeaveRequest[];
-  onApplyLeave: (date: string, notes: string) => Promise<{ success: boolean; message: string; conflict: boolean }>;
+  onApplyLeave: (dates: string[], notes: string) => Promise<{ success: boolean; message: string; conflict: boolean }>;
 }
 
 const DIVISION_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -20,7 +20,7 @@ const DEFAULT_COLOR = { bg: 'bg-slate-100 text-slate-800 border-slate-200', text
 
 export default function CalendarView({ currentUser, leaveRequests, onApplyLeave }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
@@ -49,7 +49,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
   const formatDateString = (day: number) => {
     const d = new Date(year, month, day);
     const offset = d.getTimezoneOffset();
-    const localDate = new Date(d.getTime( ) - (offset * 60 * 1000));
+    const localDate = new Date(d.getTime() - (offset * 60 * 1000));
     return localDate.toISOString().split('T')[0];
   };
 
@@ -75,43 +75,62 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
         type: 'error',
         text: 'Anda tidak dapat memilih tanggal yang sudah terlewat untuk pengajuan cuti/libur.'
       });
-      setSelectedDate(null);
       return;
     }
 
-    setSelectedDate(dateStr);
     setStatusMessage(null);
 
-    // Check same division lock warning
-    const sameDivLeaves = leaveRequests.filter(
-      (r) => r.date === dateStr && r.division === currentUser.division && r.status === 'approved'
-    );
+    // Toggle date selection
+    if (selectedDates.includes(dateStr)) {
+      setSelectedDates(prev => prev.filter(d => d !== dateStr));
+    } else {
+      // Calculate remaining leave quota dynamically (total quota minus any pending leaves)
+      const pendingCount = leaveRequests.filter(
+        (l) => l.userId === currentUser.id && l.status === 'pending'
+      ).length;
+      const currentAvailableQuota = (currentUser.leaveQuota?.libur || 0) - pendingCount;
 
-    if (sameDivLeaves.length > 0) {
-      const firstBooker = sameDivLeaves[0].username;
-      setStatusMessage({
-        type: 'warning',
-        text: `Tanggal ini sudah di-lock/dibooking oleh pekerja ${firstBooker} (${currentUser.division}). Pengajuan Anda akan membutuhkan persetujuan manual oleh Administrator/Supervisor.`
-      });
+      if (selectedDates.length >= currentAvailableQuota) {
+        setStatusMessage({
+          type: 'error',
+          text: `Sisa jatah libur Anda adalah ${currentAvailableQuota} hari (setelah dikurangi pengajuan pending). Tidak dapat memilih lebih dari sisa jatah.`
+        });
+        return;
+      }
+
+      setSelectedDates(prev => [...prev, dateStr].sort());
+
+      // Check same division lock warning for this date
+      const sameDivLeaves = leaveRequests.filter(
+        (r) => r.date === dateStr && r.division === currentUser.division && r.status === 'approved'
+      );
+
+      if (sameDivLeaves.length > 0) {
+        const firstBooker = sameDivLeaves[0].username;
+        setStatusMessage({
+          type: 'warning',
+          text: `Tanggal ${dateStr} sudah di-lock/dibooking oleh pekerja ${firstBooker} (${currentUser.division}). Pengajuan Anda pada tanggal ini akan dikirim ke admin untuk persetujuan manual.`
+        });
+      }
     }
   };
 
   const handleSubmitLeave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDate) return;
+    if (selectedDates.length === 0) return;
 
     setIsSubmitting(true);
     setStatusMessage(null);
 
     try {
-      const res = await onApplyLeave(selectedDate, notes);
+      const res = await onApplyLeave(selectedDates, notes);
       if (res.success) {
         setStatusMessage({
           type: res.conflict ? 'warning' : 'success',
           text: res.message
         });
         setNotes('');
-        setSelectedDate(null);
+        setSelectedDates([]);
       } else {
         setStatusMessage({
           type: 'error',
@@ -135,21 +154,25 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const getSelectedDateConflicts = () => {
-    if (!selectedDate) return [];
-    const dayReqs = leaveRequests.filter(r => r.date === selectedDate && r.status !== 'rejected');
-    const divisionGroups: Record<string, string[]> = {};
-    dayReqs.forEach(r => {
-      if (!divisionGroups[r.division]) {
-        divisionGroups[r.division] = [];
+  const getSelectedDatesConflicts = () => {
+    if (selectedDates.length === 0) return [];
+    
+    const allConflicts: { date: string; division: string; usernames: string[] }[] = [];
+    
+    selectedDates.forEach(dateStr => {
+      const dayReqs = leaveRequests.filter(r => r.date === dateStr && r.status === 'approved');
+      const sameDivUsers = dayReqs
+        .filter(r => r.division === currentUser.division)
+        .map(r => r.username);
+        
+      if (sameDivUsers.length > 0) {
+        allConflicts.push({ date: dateStr, division: currentUser.division, usernames: sameDivUsers });
       }
-      divisionGroups[r.division].push(r.username);
     });
-    return Object.entries(divisionGroups)
-      .filter(([_, users]) => users.length >= 2)
-      .map(([div, users]) => ({ division: div, usernames: users }));
+    
+    return allConflicts;
   };
-  const selectedDateConflicts = getSelectedDateConflicts();
+  const selectedDateConflicts = getSelectedDatesConflicts();
 
   const myLeaves = leaveRequests.filter((l) => l.userId === currentUser.id);
 
@@ -209,12 +232,12 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
             {daysArray.map((day) => {
               const dateStr = formatDateString(day);
               const dayLeaves = getDayLeaves(dateStr);
-              const isSelected = selectedDate === dateStr;
+              const isSelected = selectedDates.includes(dateStr);
               const isPast = dateStr < todayStr;
               const isToday = dateStr === todayStr;
 
               // Check for division-level conflicts (multiple leaves on same division on same day)
-              const dayReqs = leaveRequests.filter(r => r.date === dateStr && r.status !== 'rejected');
+              const dayReqs = leaveRequests.filter(r => r.date === dateStr && r.status === 'approved');
               const divisionGroups: Record<string, string[]> = {};
               dayReqs.forEach(r => {
                 if (!divisionGroups[r.division]) {
@@ -223,7 +246,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                 divisionGroups[r.division].push(r.username);
               });
               const dayConflicts = Object.entries(divisionGroups)
-                .filter(([_, users]) => users.length >= 2)
+                .filter(([div, users]) => users.length >= 1 && div === currentUser.division)
                 .map(([div, users]) => ({ division: div, usernames: users }));
 
               return (
@@ -251,7 +274,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                     {dayConflicts.length > 0 && (
                       <div 
                         className="text-amber-500 bg-amber-50 p-0.5 rounded-full border border-amber-200 animate-pulse shrink-0 cursor-help"
-                        title={`Konflik Jadwal: Ada ${dayConflicts.length} divisi dengan cuti ganda (${dayConflicts.map(c => `${c.division}: ${c.usernames.join(', ')}`).join(' | ')})`}
+                        title={`Konflik Jadwal: Ada rekan kerja se-divisi (${currentUser.division}) yang libur hari ini`}
                       >
                         <AlertTriangle className="w-2.5 h-2.5" />
                       </div>
@@ -298,12 +321,33 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
               <span>Form Pengajuan</span>
             </h4>
 
-            {selectedDate ? (
+            {selectedDates.length > 0 ? (
               <form onSubmit={handleSubmitLeave} className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase">Tanggal Terpilih</label>
-                  <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 font-mono">
-                    {new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  <div className="flex justify-between items-center">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase">Tanggal Terpilih ({selectedDates.length})</label>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDates([])}
+                      className="text-[9px] text-rose-500 hover:text-rose-700 font-bold uppercase"
+                    >
+                      Reset Pilihan
+                    </button>
+                  </div>
+                  <div className="max-h-28 overflow-y-auto bg-white border border-slate-200 rounded-lg p-2 space-y-1 custom-scrollbar">
+                    {selectedDates.map(dStr => (
+                      <div key={dStr} className="flex justify-between items-center text-[11px] font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-150">
+                        <span>{new Date(dStr).toLocaleDateString('id-ID', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDates(prev => prev.filter(d => d !== dStr))}
+                          className="text-rose-500 hover:text-rose-700 font-bold px-1"
+                          title="Hapus tanggal"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -314,12 +358,12 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                     <div>
                       <p className="font-bold text-amber-900 text-xs">Peringatan Konflik Cuti</p>
                       <p className="text-[10px] text-slate-600 leading-relaxed mt-0.5">
-                        Ada karyawan dari divisi yang sama mengajukan cuti pada tanggal ini:
+                        Ada rekan se-divisi ({currentUser.division}) yang telah disetujui libur pada tanggal berikut:
                       </p>
                       <ul className="list-disc pl-4 mt-1.5 text-[10px] text-slate-700 space-y-1">
                         {selectedDateConflicts.map((c, idx) => (
                           <li key={idx}>
-                            Divisi <span className="font-bold text-amber-900">{c.division}</span>: {c.usernames.join(', ')}
+                            <span className="font-mono">{c.date}</span> oleh {c.usernames.join(', ')}
                           </li>
                         ))}
                       </ul>
@@ -328,15 +372,17 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                 )}
 
                 <div className="space-y-1">
-                  <label htmlFor="notes-textarea" className="text-[11px] font-bold text-slate-400 uppercase">Keterangan / Alasan</label>
+                  <div className="flex justify-between items-center">
+                    <label htmlFor="notes-textarea" className="text-[11px] font-bold text-slate-400 uppercase">Keterangan / Alasan</label>
+                    <span className="text-[9px] text-slate-400 font-medium italic">Opsional</span>
+                  </div>
                   <textarea
                     id="notes-textarea"
-                    required
-                    rows={3}
+                    rows={2}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Contoh: Keperluan keluarga, cek kesehatan, atau jatah liburan berkala..."
-                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    placeholder="Boleh dikosongkan (tanpa alasan)"
+                    className="w-full text-xs px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                   />
                 </div>
 
@@ -344,7 +390,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                   type="submit"
                   disabled={isSubmitting}
                   id="btn-submit-leave"
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs py-2 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs py-2 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? 'Mengirim...' : 'Kunci Jatah Libur'}
                 </button>
@@ -353,7 +399,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
               <div className="text-center py-8 text-slate-400">
                 <Info className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                 <p className="text-xs">
-                  Silakan pilih tanggal yang tersedia pada kalender untuk mengajukan cuti atau jatah libur.
+                  Silakan pilih satu atau beberapa tanggal yang tersedia pada kalender untuk mengajukan cuti atau jatah libur.
                 </p>
               </div>
             )}
@@ -402,7 +448,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                         {l.status === 'approved' ? 'Disetujui' : l.status === 'rejected' ? 'Ditolak' : 'Tertunda'}
                       </span>
                     </div>
-                    <p className="text-slate-500 italic mt-1">" {l.notes} "</p>
+                    <p className="text-slate-500 italic mt-1">" {l.notes || 'Tanpa keterangan'} "</p>
                     {l.adminRemarks && (
                       <div className="mt-2 bg-slate-50 border-l-2 border-indigo-500 p-2 text-[10px] text-slate-700 font-sans">
                         <span className="font-bold text-indigo-600 block text-[8px] uppercase tracking-wider mb-0.5">Catatan Supervisor:</span>
