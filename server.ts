@@ -31,7 +31,7 @@ function ensureDB() {
           division: "Management",
           position: "Director",
           photoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-          leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 },
+          leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 },
           lastCheckInDevice: "PC-Admin-Device",
           currentLat: -6.2088,
           currentLng: 106.8456,
@@ -47,7 +47,7 @@ function ensureDB() {
           division: "Operations",
           position: "Supervisor Gudang",
           photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
-          leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 },
+          leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 },
           lastCheckInDevice: "Android-Device-SPV",
           currentLat: -6.2349,
           currentLng: 106.9896,
@@ -63,7 +63,7 @@ function ensureDB() {
           division: "Logistics",
           position: "Kurir Delivery",
           photoUrl: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150",
-          leaveQuota: { libur: 10, telat: 4, telatDarurat: 2, pulangCepat: 3 },
+          leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 },
           lastCheckInDevice: "Android-Budi-S21",
           currentLat: -6.2091,
           currentLng: 106.8461,
@@ -79,7 +79,7 @@ function ensureDB() {
           division: "Operations",
           position: "Staff Gudang",
           photoUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-          leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 }
+          leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
         }
       ],
       attendanceRecords: [
@@ -167,8 +167,8 @@ function ensureDB() {
       announcements: [
         {
           id: "a1",
-          title: "Sosialisasi Disiplin Kerja & Aturan Absensi",
-          content: "Diberitahukan kepada seluruh pekerja untuk selalu melakukan check-in tepat waktu sebelum jam 08:00 pagi. Jika berada di luar wilayah geofence kantor/gudang, harap melakukan liveness check berupa foto lokasi terkini untuk verifikasi admin.",
+          title: "SOP KETENTUAN ABSENSI TERBARU (Berlaku Mulai 1 Juli 2026)",
+          content: "Ketentuan Absensi Utama:\n1. Jam Kerja: Masuk 10.00 WIB, Pulang 20.00 WIB. Keterlambatan dihitung sejak pukul 10.11 WIB.\n2. Jatah Telat: 2x per bulan (bebas denda jika datang sebelum 13.00 WIB. Jika datang setelah 13.00, denda dihitung dari jam 10.00).\n3. Jatah Darurat Pribadi: 2x per 6 bulan (ban bocor, mogok, dll) dengan melampirkan bukti.\n4. Denda Keterlambatan: Mulai dari Rp5.000 s/d Rp50.000 (sesuai tabel denda). Setiap +30 menit setelah 13.30 didenda +Rp10.000.\n5. Absen Manual: Hanya untuk kondisi khusus, wajib sampai gudang dalam 2 jam setelah absen manual (melanggar ketentuan ini didenda denda kurir & potong jatah libur).\n6. Bonus Disiplin: Diberikan bulanan bila telat <= 2x, tidak melanggar absen manual, dan jatah libur terpakai <= 4 hari.",
           startDate: "2026-07-01",
           endDate: "2026-07-31",
           createdBy: "admin"
@@ -200,6 +200,24 @@ function ensureDB() {
       }
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2), 'utf-8');
+  } else {
+    try {
+      const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+      let modified = false;
+      if (data && Array.isArray(data.users)) {
+        data.users.forEach((u: any) => {
+          if (!u.leaveQuota || u.leaveQuota.libur !== 4 || u.leaveQuota.telat !== 2 || u.leaveQuota.telatDarurat !== 2) {
+            u.leaveQuota = { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 };
+            modified = true;
+          }
+        });
+      }
+      if (modified) {
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
+      }
+    } catch (e) {
+      console.error("Failed to self-heal existing db.json file", e);
+    }
   }
 }
 
@@ -227,6 +245,27 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c; // Distance in meters
+}
+
+// Calculate late fine based on check-in time according to SOP 1 Juli 2026
+function calculateLateFine(timeStr: string): number {
+  const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
+  const totalMinutes = hours * 60 + minutes + seconds / 60;
+  const startMinutes = 10 * 60; // 10:00 WIB
+  const diffMinutes = totalMinutes - startMinutes;
+
+  if (diffMinutes <= 10) {
+    return 0; // Up to 10:10:59 is fine, late starts at 10:11 WIB
+  }
+
+  if (diffMinutes > 10 && diffMinutes <= 30) {
+    return 5000; // 10.11 – 10.30: Rp5.000
+  }
+  if (diffMinutes > 30 && diffMinutes <= 60) {
+    return 50000; // 10.31 – 11.00: Rp50.000
+  }
+  // diffMinutes > 60
+  return 100000; // > 11.00: Rp100.000
 }
 
 /* ==========================================================================
@@ -273,10 +312,10 @@ app.post('/api/auth/register', (req, res) => {
     position: 'Belum Ditentukan',
     photoUrl: googlePhoto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
     leaveQuota: {
-      libur: 12,
-      telat: 5,
-      telatDarurat: 3,
-      pulangCepat: 5
+      libur: 4,
+      telat: 2,
+      telatDarurat: 2,
+      pulangCepat: 3
     }
   };
 
@@ -305,7 +344,7 @@ app.post('/api/auth/login', (req, res) => {
         division: 'Belum Ditentukan',
         position: 'Belum Ditentukan',
         photoUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 }
+        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
       };
       db.users.push(user);
       writeDB(db);
@@ -384,7 +423,7 @@ app.post('/api/users/reject', (req, res) => {
 
 // 5. Attendance Operations (Check in / Check out)
 app.post('/api/attendance/check-in', (req, res) => {
-  const { userId, lat, lng, device, livenessPhoto } = req.body;
+  const { userId, lat, lng, device, livenessPhoto, isManualCheckIn, isEmergencyLate, emergencyLateReason } = req.body;
   const db = readDB();
 
   const user = db.users.find((u: any) => u.id === userId);
@@ -414,7 +453,7 @@ app.post('/api/attendance/check-in', (req, res) => {
 
   const isOutside = !nearestLoc || minDistance > nearestLoc.radiusMeter;
 
-  // Liveness photo constraint if outside geofence
+  // Liveness photo constraint if outside geofence (manual check-in is usually outside geofence)
   if (isOutside && !livenessPhoto) {
     return res.status(400).json({
       outsideGeofence: true,
@@ -443,20 +482,92 @@ app.post('/api/attendance/check-in', (req, res) => {
     return res.status(400).json({ error: 'Anda sudah melakukan Check-In hari ini.' });
   }
 
-  // Late calculation (e.g., after 08:00 AM is late)
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  const isLate = (hours > 8) || (hours === 8 && minutes > 0);
+  // Working Hours (SOP 1 Juli 2026: Jam masuk 10:00 WIB, telat mulai 10:11 WIB)
+  const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
+  const totalCheckInMinutes = hours * 60 + minutes + seconds / 60;
+  const isLate = totalCheckInMinutes >= 10 * 60 + 11; // >= 10:11 WIB is late
 
   let fineAmount = 0;
   let bonusAmount = 0;
-  if (isLate) {
-    fineAmount = db.config.dendaTelat;
-    // Decrement late quota
-    if (user.leaveQuota.telat > 0) {
-      user.leaveQuota.telat -= 1;
+  let usedQuotaType: 'telat' | 'telatDarurat' | 'libur' | null = null;
+  let note = '';
+
+  if (isManualCheckIn) {
+    note = 'Absen manual khusus darurat dimulai. Pekerja wajib sampai gudang maks 2 jam.';
+  } else if (isLate) {
+    // Standard Late Check-In
+    let quotaProcessed = false;
+
+    if (isEmergencyLate) {
+      // Worker claims Personal Emergency Quota
+      if (user.leaveQuota.telatDarurat > 0) {
+        user.leaveQuota.telatDarurat -= 1;
+        fineAmount = 0;
+        usedQuotaType = 'telatDarurat';
+        note = `Terlambat menggunakan Jatah Darurat Pribadi: ${emergencyLateReason || 'Masalah teknis/jalan'}.`;
+        quotaProcessed = true;
+      }
+    }
+
+    if (!quotaProcessed) {
+      const currentMonthStr = dateStr.substring(0, 7);
+      // Count previous late check-ins for the current month
+      const monthlyLateRecords = db.attendanceRecords.filter((r: any) => 
+        r.userId === userId && 
+        r.date.startsWith(currentMonthStr) && 
+        r.isLate && 
+        !r.isManualCheckIn && 
+        r.usedQuotaType !== 'telatDarurat'
+      );
+      const previousLateCount = monthlyLateRecords.length;
+
+      if (previousLateCount < 2) {
+        // Late #1 or #2: late quota available
+        if (totalCheckInMinutes <= 13 * 60) {
+          // Arrived before/at 13:00 WIB
+          fineAmount = 0;
+          usedQuotaType = 'telat';
+          if (user.leaveQuota.telat > 0) {
+            user.leaveQuota.telat -= 1;
+          }
+          note = `Terlambat masuk ke-${previousLateCount + 1} (Dalam jatah & tiba sebelum 13:00, Bebas Denda).`;
+        } else {
+          // Arrived after 13:00 WIB
+          fineAmount = calculateLateFine(timeStr);
+          usedQuotaType = 'telat';
+          if (user.leaveQuota.telat > 0) {
+            user.leaveQuota.telat -= 1;
+          }
+          note = `Terlambat masuk ke-${previousLateCount + 1} tiba setelah 13:00. Denda dihitung sejak 10:00.`;
+        }
+      } else if (previousLateCount === 2) {
+        // Late #3: can be substituted with 1 leave day if available
+        if (user.leaveQuota.libur > 0) {
+          user.leaveQuota.libur -= 1;
+          fineAmount = 0;
+          usedQuotaType = 'libur';
+          note = `Terlambat masuk ke-3 diganti potong jatah libur (Tanpa denda).`;
+        } else {
+          // No leave quota left
+          fineAmount = calculateLateFine(timeStr);
+          note = `Terlambat masuk ke-3. Jatah libur habis untuk pengganti denda. Denda dihitung sejak 10:00.`;
+        }
+      } else {
+        // Late #4 onwards: standard denda from 10:00
+        fineAmount = calculateLateFine(timeStr);
+        note = `Terlambat masuk ke-${previousLateCount + 1} (Jatah jatah telat habis). Denda dihitung sejak 10:00.`;
+      }
+    }
+
+    // Telat setelah jam 14.00: Wajib potong jatah libur
+    if (totalCheckInMinutes > 14 * 60) {
+      user.leaveQuota.libur = Math.max(0, user.leaveQuota.libur - 1);
+      note += ' Wajib potong jatah libur karena telat masuk setelah jam 14:00.';
     }
   } else {
+    // On-time check-in
     bonusAmount = db.config.bonusTepatWaktu;
+    note = 'Tepat waktu.';
   }
 
   const newRecord = {
@@ -476,7 +587,12 @@ app.post('/api/attendance/check-in', (req, res) => {
     status: isOutside ? 'pending' : 'approved', // outside geofence check-ins remain pending for review
     fineAmount,
     bonusAmount,
-    note: isOutside ? 'Absen luar kantor, menunggu tinjauan liveness.' : (isLate ? 'Terlambat masuk.' : 'Tepat waktu.')
+    note: isOutside && !isManualCheckIn ? 'Absen luar kantor, menunggu tinjauan liveness.' : note,
+    isManualCheckIn: !!isManualCheckIn,
+    manualCheckInTime: isManualCheckIn ? timeStr : null,
+    arrivalTimeAtWarehouse: null,
+    isConfirmedToBoss: false,
+    usedQuotaType
   };
 
   db.attendanceRecords.push(newRecord);
@@ -486,9 +602,11 @@ app.post('/api/attendance/check-in', (req, res) => {
     success: true,
     record: newRecord,
     outside: isOutside,
-    message: isOutside
-      ? 'Check-in berhasil diajukan (Menunggu Persetujuan Admin karena berada di luar area geofence).'
-      : 'Check-in sukses! Kehadiran Anda dicatat dalam area geofence.'
+    message: isManualCheckIn
+      ? 'Check-In Manual Berhasil Diaktifkan! Anda memiliki waktu maksimal 2 jam untuk sampai di gudang.'
+      : isOutside
+        ? 'Check-in berhasil diajukan (Menunggu Persetujuan Admin karena berada di luar area geofence).'
+        : `Check-in sukses! ${note}`
   });
 });
 
@@ -524,9 +642,42 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   const isOutside = !nearestLoc || minDistance > nearestLoc.radiusMeter;
 
-  // Early out check (e.g. before 05:00 PM / 17:00 is early)
-  const [hours] = timeStr.split(':').map(Number);
-  const isEarlyOut = hours < 17;
+  // Jam Pulang: 20.00 WIB. Early out if hours < 20
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const isEarlyOut = hours < 20;
+
+  let isEarlyOutViolation = false;
+  let checkoutNote = '';
+
+  const user = db.users.find((u: any) => u.id === userId);
+
+  if (isEarlyOut) {
+    const currentMonthStr = dateStr.substring(0, 7);
+    const previousEarlyOuts = db.attendanceRecords.filter((r: any) => 
+      r.userId === userId && 
+      r.date.startsWith(currentMonthStr) && 
+      r.isEarlyOut
+    );
+    const previousEarlyOutCount = previousEarlyOuts.length;
+
+    // SOP: Pulang cepat max jam 17:00, max 3x sebulan. Lebih dari itu potong jatah libur & bonus.
+    if (hours < 17 || previousEarlyOutCount >= 3) {
+      isEarlyOutViolation = true;
+      if (user) {
+        user.leaveQuota.libur = Math.max(0, user.leaveQuota.libur - 1);
+      }
+      checkoutNote = `Pulang cepat melanggar ketentuan (Pukul ${timeStr}, ke-${previousEarlyOutCount + 1} bulan ini). Bonus hari ini dibatalkan & jatah libur dipotong 1 hari.`;
+      db.attendanceRecords[recordIdx].bonusAmount = 0; // Cancel on-time bonus
+    } else {
+      checkoutNote = `Pulang cepat dalam toleransi (Pukul ${timeStr}, ke-${previousEarlyOutCount + 1} bulan ini).`;
+    }
+
+    if (user && user.leaveQuota.pulangCepat > 0) {
+      user.leaveQuota.pulangCepat -= 1;
+    }
+  } else {
+    checkoutNote = 'Pulang kerja tepat waktu.';
+  }
 
   // Update record
   db.attendanceRecords[recordIdx].checkOutTime = timeStr;
@@ -534,22 +685,107 @@ app.post('/api/attendance/check-out', (req, res) => {
   db.attendanceRecords[recordIdx].checkOutLng = lng;
   db.attendanceRecords[recordIdx].checkOutLocationName = isOutside ? 'Di Luar Area Geofence' : nearestLoc.name;
   db.attendanceRecords[recordIdx].isEarlyOut = isEarlyOut;
-
-  // Deduct early out quota if applicable
-  if (isEarlyOut) {
-    const user = db.users.find((u: any) => u.id === userId);
-    if (user && user.leaveQuota.pulangCepat > 0) {
-      user.leaveQuota.pulangCepat -= 1;
-    }
-  }
+  db.attendanceRecords[recordIdx].isEarlyOutViolation = isEarlyOutViolation;
+  db.attendanceRecords[recordIdx].note = db.attendanceRecords[recordIdx].note
+    ? `${db.attendanceRecords[recordIdx].note} | ${checkoutNote}`
+    : checkoutNote;
 
   writeDB(db);
   res.json({ success: true, record: db.attendanceRecords[recordIdx] });
 });
 
-// Admin approves a pending check-in (outside office)
+// Confirm arrival at warehouse for Manual Check-In
+app.post('/api/attendance/manual-arrive', (req, res) => {
+  const { userId, isConfirmedToBoss } = req.body;
+  const db = readDB();
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const timeStr = now.toTimeString().split(' ')[0];
+
+  const recordIdx = db.attendanceRecords.findIndex((r: any) => r.userId === userId && r.date === dateStr);
+  if (recordIdx === -1) {
+    return res.status(400).json({ error: 'Anda belum melakukan Check-In hari ini.' });
+  }
+
+  const record = db.attendanceRecords[recordIdx];
+  if (!record.isManualCheckIn) {
+    return res.status(400).json({ error: 'Hari ini Anda tidak melakukan Check-In Manual.' });
+  }
+
+  if (record.arrivalTimeAtWarehouse) {
+    return res.status(400).json({ error: 'Anda sudah melakukan konfirmasi kedatangan di gudang hari ini.' });
+  }
+
+  // Record arrival
+  record.arrivalTimeAtWarehouse = timeStr;
+  record.isConfirmedToBoss = !!isConfirmedToBoss;
+
+  // Calculate delay from check-in time to arrival time
+  const [ciH, ciM, ciS = 0] = record.checkInTime.split(':').map(Number);
+  const checkInTotalMinutes = ciH * 60 + ciM + ciS / 60;
+
+  const [arrH, arrM, arrS = 0] = timeStr.split(':').map(Number);
+  const arrivalTotalMinutes = arrH * 60 + arrM + arrS / 60;
+
+  const delayMinutes = arrivalTotalMinutes - checkInTotalMinutes;
+  let fineAmount = 0;
+  let leaveDeducted = false;
+
+  // Limits: 2 hours (120 minutes) limit to arrive
+  if (delayMinutes > 120) {
+    const minutesPastL = delayMinutes - 120;
+    const isAfter14 = arrivalTotalMinutes > 14 * 60; // Arriving after 14:00
+
+    if (!isConfirmedToBoss || isAfter14) {
+      // Calculate Courier manual fine scale (SOP Section 7)
+      if (minutesPastL <= 30) {
+        fineAmount = 30000;
+      } else if (minutesPastL <= 60) {
+        fineAmount = 40000;
+      } else if (minutesPastL <= 90) {
+        fineAmount = 50000;
+      } else {
+        const extraIntervals = Math.ceil((minutesPastL - 90) / 30);
+        fineAmount = 50000 + extraIntervals * 10000;
+      }
+
+      // Deduct leave quota
+      user.leaveQuota.libur = Math.max(0, user.leaveQuota.libur - 1);
+      leaveDeducted = true;
+      record.note = `Telat sampai gudang selama ${Math.round(delayMinutes)} menit tanpa konfirmasi atau tiba setelah 14:00. Denda Rp${fineAmount.toLocaleString('id-ID')} & jatah libur dipotong 1 hari.`;
+    } else {
+      record.note = `Terlambat sampai gudang (${Math.round(delayMinutes)} menit) tetapi ditoleransi karena telah konfirmasi ke atasan sebelum jam 14:00.`;
+    }
+  } else {
+    record.note = `Sampai di gudang tepat waktu (${Math.round(delayMinutes)} menit setelah absen manual).`;
+  }
+
+  record.fineAmount = fineAmount;
+  record.isManualViolation = leaveDeducted;
+
+  // Update status from pending to approved since they confirmed physical arrival in the warehouse!
+  record.status = 'approved';
+
+  writeDB(db);
+  res.json({ success: true, record });
+});
+
+// Admin approves a pending check-in (outside office or late)
 app.post('/api/attendance/approve-pending', (req, res) => {
-  const { recordId, action } = req.body; // action: 'approve' | 'reject'
+  const {
+    recordId,
+    action,
+    classification = 'standard',
+    quotaDeduction = 'none',
+    fineMode = 'auto',
+    customFineValue = 0
+  } = req.body; // action: 'approve' | 'reject'
   const db = readDB();
 
   const recordIdx = db.attendanceRecords.findIndex((r: any) => r.id === recordId);
@@ -557,16 +793,59 @@ app.post('/api/attendance/approve-pending', (req, res) => {
     return res.status(404).json({ error: 'Catatan absensi tidak ditemukan.' });
   }
 
+  const record = db.attendanceRecords[recordIdx];
+  const user = db.users.find((u: any) => u.id === record.userId);
+
   if (action === 'approve') {
-    db.attendanceRecords[recordIdx].status = 'approved';
-    db.attendanceRecords[recordIdx].note = 'Absen luar kantor DISETUJUI oleh Admin/Supervisor.';
+    record.status = 'approved';
+    record.isManualCheckIn = (classification === 'manual');
+    if (classification === 'manual') {
+      record.manualCheckInTime = record.checkInTime;
+    }
+
+    // Deduct selected quota from user
+    record.usedQuotaType = (quotaDeduction === 'none' ? null : quotaDeduction);
+    if (user) {
+      if (quotaDeduction === 'telat') {
+        user.leaveQuota.telat = Math.max(0, user.leaveQuota.telat - 1);
+      } else if (quotaDeduction === 'telatDarurat') {
+        user.leaveQuota.telatDarurat = Math.max(0, user.leaveQuota.telatDarurat - 1);
+      } else if (quotaDeduction === 'libur') {
+        user.leaveQuota.libur = Math.max(0, user.leaveQuota.libur - 1);
+      }
+    }
+
+    // Fine management
+    if (fineMode === 'free') {
+      record.fineAmount = 0;
+    } else if (fineMode === 'custom') {
+      record.fineAmount = Number(customFineValue || 0);
+    } else {
+      // 'auto' calculation
+      record.fineAmount = calculateLateFine(record.checkInTime);
+    }
+
+    // Construct a detailed log/note
+    const classificationNames: Record<string, string> = {
+      standard: 'Absen Biasa',
+      manual: 'Absen Manual / Tugas Luar',
+      emergency: 'Absen Darurat Pribadi'
+    };
+    const quotaNames: Record<string, string> = {
+      none: 'Tanpa Potong Jatah (Dispensasi)',
+      telat: 'Potong Jatah Telat',
+      telatDarurat: 'Potong Jatah Telat Darurat',
+      libur: 'Potong Jatah Libur'
+    };
+
+    record.note = `Absen DISETUJUI oleh Admin/Supervisor. [Klasifikasi: ${classificationNames[classification] || classification}] [Sanksi: Rp ${record.fineAmount.toLocaleString('id-ID')}] [Jatah: ${quotaNames[quotaDeduction] || quotaDeduction}].`;
   } else {
-    db.attendanceRecords[recordIdx].status = 'rejected';
-    db.attendanceRecords[recordIdx].note = 'Absen luar kantor DITOLAK karena liveness tidak valid.';
+    record.status = 'rejected';
+    record.note = 'Absen ditolak oleh Admin/Supervisor karena liveness tidak valid atau melanggar batas geofence.';
   }
 
   writeDB(db);
-  res.json({ success: true, record: db.attendanceRecords[recordIdx] });
+  res.json({ success: true, record });
 });
 
 app.get('/api/attendance/history', (req, res) => {
@@ -886,7 +1165,7 @@ app.post('/api/admin/factory-reset', (req, res) => {
         division: "Management",
         position: "Director",
         photoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-        leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 },
+        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 },
         lastCheckInDevice: "PC-Admin-Device",
         currentLat: -6.2088,
         currentLng: 106.8456,
@@ -902,7 +1181,7 @@ app.post('/api/admin/factory-reset', (req, res) => {
         division: "Operations",
         position: "Supervisor Gudang",
         photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
-        leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 },
+        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 },
         lastCheckInDevice: "Android-Device-SPV",
         currentLat: -6.2349,
         currentLng: 106.9896,
@@ -918,7 +1197,7 @@ app.post('/api/admin/factory-reset', (req, res) => {
         division: "Logistics",
         position: "Kurir Delivery",
         photoUrl: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150",
-        leaveQuota: { libur: 10, telat: 4, telatDarurat: 2, pulangCepat: 3 },
+        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 },
         lastCheckInDevice: "Android-Budi-S21",
         currentLat: -6.2091,
         currentLng: 106.8461,
@@ -934,7 +1213,7 @@ app.post('/api/admin/factory-reset', (req, res) => {
         division: "Operations",
         position: "Staff Gudang",
         photoUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-        leaveQuota: { libur: 12, telat: 5, telatDarurat: 3, pulangCepat: 5 }
+        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
       }
     ],
     attendanceRecords: [
@@ -1022,8 +1301,8 @@ app.post('/api/admin/factory-reset', (req, res) => {
     announcements: [
       {
         id: "a1",
-        title: "Sosialisasi Disiplin Kerja & Aturan Absensi",
-        content: "Diberitahukan kepada seluruh pekerja untuk selalu melakukan check-in tepat waktu sebelum jam 08:00 pagi. Jika berada di luar wilayah geofence kantor/gudang, harap melakukan liveness check berupa foto lokasi terkini untuk verifikasi admin.",
+        title: "SOP KETENTUAN ABSENSI TERBARU (Berlaku Mulai 1 Juli 2026)",
+        content: "Ketentuan Absensi Utama:\n1. Jam Kerja: Masuk 10.00 WIB, Pulang 20.00 WIB. Keterlambatan dihitung sejak pukul 10.11 WIB.\n2. Jatah Telat: 2x per bulan (bebas denda jika datang sebelum 13.00 WIB. Jika datang setelah 13.00, denda dihitung dari jam 10.00).\n3. Jatah Darurat Pribadi: 2x per 6 bulan (ban bocor, mogok, dll) dengan melampirkan bukti.\n4. Denda Keterlambatan: Mulai dari Rp5.000 s/d Rp50.000 (sesuai tabel denda). Setiap +30 menit setelah 13.30 didenda +Rp10.000.\n5. Absen Manual: Hanya untuk kondisi khusus, wajib sampai gudang dalam 2 jam setelah absen manual (melanggar ketentuan ini didenda denda kurir & potong jatah libur).\n6. Bonus Disiplin: Diberikan bulanan bila telat <= 2x, tidak melanggar absen manual, dan jatah libur terpakai <= 4 hari.",
         startDate: "2026-07-01",
         endDate: "2026-07-31",
         createdBy: "admin"

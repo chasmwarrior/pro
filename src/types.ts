@@ -51,6 +51,13 @@ export interface AttendanceRecord {
   fineAmount: number;
   bonusAmount: number;
   note?: string;
+  isManualCheckIn?: boolean;
+  manualCheckInTime?: string | null;
+  arrivalTimeAtWarehouse?: string | null;
+  isConfirmedToBoss?: boolean;
+  isEarlyOutViolation?: boolean;
+  isManualViolation?: boolean;
+  usedQuotaType?: 'telat' | 'telatDarurat' | 'libur' | null;
 }
 
 export interface LeaveRequest {

@@ -89,8 +89,52 @@ export default function App() {
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  // States for SOP 1 Juli 2026 Manual Check-in and Emergency Check-in
+  const [isManualCheckIn, setIsManualCheckIn] = useState(false);
+  const [isEmergencyLate, setIsEmergencyLate] = useState(false);
+  const [emergencyLateReason, setEmergencyLateReason] = useState('');
+  const [isConfirmedToBoss, setIsConfirmedToBoss] = useState(false);
+  const [isSubmittingManualArrive, setIsSubmittingManualArrive] = useState(false);
+
+  // Admin approval forms state for customizing each record
+  const [approvalForms, setApprovalForms] = useState<Record<string, {
+    classification: 'standard' | 'manual' | 'emergency';
+    quotaDeduction: 'none' | 'telat' | 'telatDarurat' | 'libur';
+    fineMode: 'auto' | 'free' | 'custom';
+    customFineValue: number;
+  }>>({});
+
+  const getApprovalForm = (recordId: string) => {
+    return approvalForms[recordId] || {
+      classification: 'standard',
+      quotaDeduction: 'none',
+      fineMode: 'auto',
+      customFineValue: 0
+    };
+  };
+
+  const updateApprovalForm = (recordId: string, fields: Partial<typeof approvalForms[string]>) => {
+    setApprovalForms(prev => ({
+      ...prev,
+      [recordId]: {
+        ...getApprovalForm(recordId),
+        ...fields
+      }
+    }));
+  };
+
   // Auth Forms
   const [isLogin, setIsLogin] = useState(true);
+  const [showPermissionPromptModal, setShowPermissionPromptModal] = useState(false);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
   const [authCredential, setAuthCredential] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authRegUsername, setAuthRegUsername] = useState('');
@@ -122,6 +166,8 @@ export default function App() {
   const [settingsBonusDisiplin, setSettingsBonusDisiplin] = useState('');
   const [settingsAppName, setSettingsAppName] = useState('');
   const [settingsAppLogo, setSettingsAppLogo] = useState('');
+  const [settingsLemburHour1, setSettingsLemburHour1] = useState('20000');
+  const [settingsLemburHour2Onwards, setSettingsLemburHour2Onwards] = useState('30000');
 
   const [approvalUserForm, setApprovalUserForm] = useState<{
     userId: string;
@@ -194,6 +240,16 @@ export default function App() {
 
   // Filter for employee's history tab
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
+
+  // Trigger permission modal overlay at app launch if permissions are prompt
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (permissionStates.gps === 'prompt' || permissionStates.camera === 'prompt') {
+        setShowPermissionPromptModal(true);
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [permissionStates.gps, permissionStates.camera]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -379,6 +435,8 @@ export default function App() {
       setSettingsBonusDisiplin(data.bonusDisiplinBulanan.toString());
       setSettingsAppName(data.branding.name);
       setSettingsAppLogo(data.branding.logoUrl);
+      setSettingsLemburHour1(data.overtimeConfig?.rateHour1?.toString() || '20000');
+      setSettingsLemburHour2Onwards(data.overtimeConfig?.rateHour2Onwards?.toString() || '30000');
     } catch (e) {
       console.error(e);
     }
@@ -409,6 +467,68 @@ export default function App() {
       const res = await fetch('/api/attendance/history');
       const data = await res.json();
       setAttendanceRecords(data);
+
+      // Auto-populate SOP 2026 suggestions for pending records
+      const initialForms: Record<string, {
+        classification: 'standard' | 'manual' | 'emergency';
+        quotaDeduction: 'none' | 'telat' | 'telatDarurat' | 'libur';
+        fineMode: 'auto' | 'free' | 'custom';
+        customFineValue: number;
+      }> = {};
+
+      data.forEach((rec: any) => {
+        if (rec.status === 'pending') {
+          const [hours, minutes, seconds = 0] = rec.checkInTime.split(':').map(Number);
+          const totalMinutes = hours * 60 + minutes + seconds / 60;
+          const startMinutes = 10 * 60; // 10:00 WIB
+          const diffMinutes = totalMinutes - startMinutes;
+
+          let classification: 'standard' | 'manual' | 'emergency' = 'standard';
+          let quotaDeduction: 'none' | 'telat' | 'telatDarurat' | 'libur' = 'none';
+          let fineMode: 'auto' | 'free' | 'custom' = 'auto';
+          let customFineValue = 0;
+
+          if (rec.isManualCheckIn) {
+            classification = 'manual';
+          }
+
+          if (diffMinutes <= 10) {
+            // Telat 1 - 10 menit (10:01 - 10:10 WIB): Dispensasi Rp 0
+            quotaDeduction = 'none';
+            fineMode = 'free';
+            customFineValue = 0;
+          } else if (diffMinutes > 10 && diffMinutes <= 30) {
+            // Telat 11 - 30 menit (10:11 - 10:30 WIB): Denda Rp 5.000 / Kejadian
+            quotaDeduction = 'telat';
+            fineMode = 'custom';
+            customFineValue = 5000;
+          } else if (diffMinutes > 30 && diffMinutes <= 60) {
+            // Telat 31 - 60 menit (10:31 - 11:00 WIB): Denda Rp 50.000 atau Potong 0.5 Libur
+            // Default suggest Potong 0.5 Libur (as a quota, or Rp 50,000 fine)
+            quotaDeduction = 'none';
+            fineMode = 'custom';
+            customFineValue = 50000;
+          } else {
+            // Telat > 60 menit (> 11:00 WIB): Denda Rp 100.000 atau Potong 1 Libur
+            // Default suggest Rp 100,000 fine or potong libur
+            quotaDeduction = 'none';
+            fineMode = 'custom';
+            customFineValue = 100000;
+          }
+
+          initialForms[rec.id] = {
+            classification,
+            quotaDeduction,
+            fineMode,
+            customFineValue
+          };
+        }
+      });
+
+      setApprovalForms(prev => ({
+        ...initialForms,
+        ...prev // Preserve any user inputs
+      }));
     } catch (e) {
       console.error(e);
     }
@@ -611,7 +731,10 @@ export default function App() {
           lat: deviceLat,
           lng: deviceLng,
           device: deviceFingerprint,
-          livenessPhoto: livenessPhoto
+          livenessPhoto: livenessPhoto,
+          isManualCheckIn,
+          isEmergencyLate,
+          emergencyLateReason
         })
       });
 
@@ -631,6 +754,9 @@ export default function App() {
       alert(data.message);
       setLivenessPhoto(null);
       setIsOutsideGeofence(false);
+      setIsManualCheckIn(false);
+      setIsEmergencyLate(false);
+      setEmergencyLateReason('');
       fetchAttendanceHistory();
     } catch (e) {
       alert("Proses Check-In gagal.");
@@ -662,6 +788,33 @@ export default function App() {
       fetchAttendanceHistory();
     } catch (e) {
       alert("Proses Check-Out gagal.");
+    }
+  };
+
+  const handleManualArrive = async () => {
+    if (!currentUser) return;
+    setIsSubmittingManualArrive(true);
+    try {
+      const res = await fetch('/api/attendance/manual-arrive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          isConfirmedToBoss
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error);
+        return;
+      }
+      alert(data.record?.note || "Kedatangan berhasil dikonfirmasi!");
+      setIsConfirmedToBoss(false);
+      fetchAttendanceHistory();
+    } catch (e) {
+      alert("Gagal melakukan konfirmasi kedatangan.");
+    } finally {
+      setIsSubmittingManualArrive(false);
     }
   };
 
@@ -832,14 +985,36 @@ export default function App() {
   };
 
   // Approving Outside Geofence Attendance & leaves
-  const handleApproveAttendance = async (recordId: string, action: 'approve' | 'reject') => {
+  const handleApproveAttendance = async (
+    recordId: string,
+    action: 'approve' | 'reject',
+    classification?: string,
+    quotaDeduction?: string,
+    fineMode?: string,
+    customFineValue?: number
+  ) => {
     const res = await fetch('/api/attendance/approve-pending', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recordId, action })
+      body: JSON.stringify({
+        recordId,
+        action,
+        classification,
+        quotaDeduction,
+        fineMode,
+        customFineValue
+      })
     });
     if (res.ok) {
+      if (action === 'approve') {
+        showToast("Absensi berhasil disahkan!", "success");
+      } else {
+        showToast("Absensi berhasil ditolak.", "info");
+      }
       fetchAttendanceHistory();
+      fetchAllWorkers(); // Refresh quotas on admin dashboard too!
+    } else {
+      showToast("Gagal memproses persetujuan absensi.", "error");
     }
   };
 
@@ -1036,6 +1211,11 @@ export default function App() {
         branding: {
           name: settingsAppName,
           logoUrl: settingsAppLogo
+        },
+        overtimeConfig: {
+          normalEndTime: "20:00:00",
+          rateHour1: Number(settingsLemburHour1),
+          rateHour2Onwards: Number(settingsLemburHour2Onwards)
         }
       })
     });
@@ -1176,6 +1356,51 @@ export default function App() {
       return idxA - idxB;
     });
   }, [userRecords]);
+
+  // Prepare monthly Financial Performance data for Recharts (Fines vs Bonuses)
+  const monthlyFinancialData = React.useMemo(() => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
+    const grouped: Record<string, { month: string; fines: number; bonuses: number }> = {};
+    
+    const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'supervisor';
+    const targetRecords = isPrivileged ? attendanceRecords : userRecords;
+
+    targetRecords.forEach((record) => {
+      const parts = record.date.split('-');
+      if (parts.length === 3) {
+        const monthIndex = parseInt(parts[1], 10) - 1;
+        const monthName = months[monthIndex] || 'Unk';
+        const year = parts[0];
+        const key = `${monthName} ${year}`;
+        
+        if (!grouped[key]) {
+          grouped[key] = { month: key, fines: 0, bonuses: 0 };
+        }
+        
+        grouped[key].fines += (record.fineAmount || 0);
+        grouped[key].bonuses += (record.bonusAmount || 0);
+      }
+    });
+
+    const chartData = Object.values(grouped);
+    if (chartData.length === 0) {
+      // Fallback/illustrative months to show impact of SOP 2026
+      return [
+        { month: 'Apr 2026', fines: 15000, bonuses: 50000 },
+        { month: 'Mei 2026', fines: 25000, bonuses: 75000 },
+        { month: 'Jun 2026', fines: 10000, bonuses: 60000 },
+        { month: 'Jul 2026', fines: 35000, bonuses: 45000 },
+      ];
+    }
+
+    return chartData.sort((a, b) => {
+      const [mA, yA] = a.month.split(' ');
+      const [mB, yB] = b.month.split(' ');
+      const idxA = months.indexOf(mA) + parseInt(yA) * 12;
+      const idxB = months.indexOf(mB) + parseInt(yB) * 12;
+      return idxA - idxB;
+    });
+  }, [attendanceRecords, userRecords, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
@@ -1781,18 +2006,75 @@ export default function App() {
                     )}
 
                     {/* Check In / Out Main Buttons */}
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {!todayRecord ? (
                         <button
                           type="button"
                           onClick={handleCheckIn}
                           id="btn-check-in"
                           disabled={isLocating || deviceLat === null}
-                          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
+                          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
                           <span>Mulai Check-In Kerja</span>
                         </button>
+                      ) : todayRecord.isManualCheckIn && !todayRecord.arrivalTimeAtWarehouse ? (
+                        /* Manual Check-In but not yet confirmed arrival at Warehouse */
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl space-y-3 text-slate-800">
+                          <div className="flex items-start gap-2.5">
+                            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                            <div>
+                              <h4 className="font-bold text-xs text-amber-900">Menunggu Konfirmasi Kedatangan Gudang</h4>
+                              <p className="text-[10px] text-amber-700 leading-normal mt-0.5">
+                                Anda telah melakukan Absen Manual kerja pada jam <b>{todayRecord.checkInTime}</b>. Sesuai SOP, Anda wajib sampai di gudang fisik dalam waktu 2 jam.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="bg-white border border-amber-100 p-2.5 rounded-lg space-y-2 text-slate-700 text-[10px]">
+                            <div className="flex justify-between border-b border-slate-100 pb-1">
+                              <span>Waktu Mulai:</span>
+                              <span className="font-mono font-bold">{todayRecord.checkInTime}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Batas Kedatangan:</span>
+                              <span className="font-mono font-bold text-amber-700">
+                                {(() => {
+                                  const [h, m] = todayRecord.checkInTime.split(':').map(Number);
+                                  const targetMin = h * 60 + m + 120;
+                                  const targetH = Math.floor(targetMin / 60) % 24;
+                                  const targetM = targetMin % 60;
+                                  return `${String(targetH).padStart(2, '0')}:${String(targetM).padStart(2, '0')}`;
+                                })()} WIB
+                              </span>
+                            </div>
+                          </div>
+
+                          <label className="flex items-start gap-2.5 cursor-pointer bg-white p-2.5 rounded-lg border border-amber-100 shadow-xs">
+                            <input
+                              type="checkbox"
+                              checked={isConfirmedToBoss}
+                              onChange={(e) => setIsConfirmedToBoss(e.target.checked)}
+                              className="mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4"
+                            />
+                            <div>
+                              <span className="font-semibold text-[11px] text-amber-950 block">Sudah Konfirmasi Atasan</span>
+                              <span className="text-[9px] text-amber-700 leading-normal block">
+                                Centang ini jika terlambat lebih dari 2 jam dan sudah mengonfirmasi atasan sebelum jam 14:00 (mencegah denda).
+                              </span>
+                            </div>
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={handleManualArrive}
+                            disabled={isSubmittingManualArrive}
+                            className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 text-xs cursor-pointer"
+                          >
+                            <Building2 className="w-4 h-4" />
+                            <span>Konfirmasi Sampai di Gudang</span>
+                          </button>
+                        </div>
                       ) : !todayRecord.checkOutTime ? (
                         <button
                           type="button"
@@ -1809,7 +2091,7 @@ export default function App() {
                           <CheckCircle2 className="w-5 h-5 mx-auto text-emerald-600" />
                           <p className="font-semibold">Kehadiran Selesai Hari Ini</p>
                           <p className="text-[10px] text-slate-500 font-mono">
-                            Masuk: {todayRecord.checkInTime} | Pulang: {todayRecord.checkOutTime}
+                            Masuk: {todayRecord.checkInTime} {todayRecord.isManualCheckIn && `(Manual, Sampai Gudang: ${todayRecord.arrivalTimeAtWarehouse || '-'})`} | Pulang: {todayRecord.checkOutTime}
                           </p>
                         </div>
                       )}
@@ -2023,6 +2305,94 @@ export default function App() {
                           name="Terlambat (Late)" 
                           dataKey="late" 
                           fill="#f43f5e" 
+                          radius={[4, 4, 0, 0]} 
+                          maxBarSize={30}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Financial Performance Chart (Fines vs Bonuses) according to SOP 2026 */}
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm text-slate-800 animate-fade-in">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 mb-4 border-b border-slate-100 gap-3">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Dampak Finansial SOP Baru</span>
+                      <h3 className="font-display font-bold text-sm text-slate-800 mt-0.5 flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-emerald-500" />
+                        <span>Kinerja Keuangan (Fines vs Bonuses)</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Memantau akumulasi potensi denda keterlambatan berjenjang terhadap insentif denda/bonus yang berhasil dihitung sistem.
+                      </p>
+                    </div>
+                    
+                    {/* Computed totals for highlighting */}
+                    <div className="flex items-center gap-4 text-xs font-mono font-bold bg-slate-50 border border-slate-200 p-2.5 rounded-lg shrink-0">
+                      <div>
+                        <span className="text-slate-400 block text-[8px] uppercase">TOTAL POTENSI DENDA</span>
+                        <span className="text-rose-600">
+                          {formatIDRCurrency(monthlyFinancialData.reduce((acc, d) => acc + d.fines, 0))}
+                        </span>
+                      </div>
+                      <div className="border-l border-slate-200 pl-3">
+                        <span className="text-slate-400 block text-[8px] uppercase">TOTAL BONUS DITERIMA</span>
+                        <span className="text-emerald-600">
+                          {formatIDRCurrency(monthlyFinancialData.reduce((acc, d) => acc + d.bonuses, 0))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recharts Bar Chart Visualizer for Financials */}
+                  <div className="w-full h-64 font-sans text-xs">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={monthlyFinancialData}
+                        margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="month" 
+                          stroke="#64748b" 
+                          fontSize={10}
+                          tickLine={false}
+                        />
+                        <YAxis 
+                          stroke="#64748b" 
+                          fontSize={10}
+                          tickLine={false}
+                          tickFormatter={(val) => `Rp ${(val / 1000).toLocaleString('id-ID')}k`}
+                        />
+                        <Tooltip
+                          formatter={(value: any) => [formatIDRCurrency(Number(value)), '']}
+                          contentStyle={{ 
+                            backgroundColor: '#0f172a', 
+                            border: 'none', 
+                            borderRadius: '8px',
+                            color: '#fff',
+                            fontSize: '11px',
+                            fontFamily: 'monospace'
+                          }}
+                        />
+                        <Legend 
+                          verticalAlign="top" 
+                          height={36} 
+                          iconType="circle"
+                          iconSize={8}
+                          wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }}
+                        />
+                        <Bar 
+                          name="Total Potensi Denda" 
+                          dataKey="fines" 
+                          fill="#f43f5e" 
+                          radius={[4, 4, 0, 0]} 
+                          maxBarSize={30}
+                        />
+                        <Bar 
+                          name="Bonus yang Diterima" 
+                          dataKey="bonuses" 
+                          fill="#10b981" 
                           radius={[4, 4, 0, 0]} 
                           maxBarSize={30}
                         />
@@ -2726,54 +3096,130 @@ export default function App() {
                       <div className="p-5 space-y-4">
                         {attendanceRecords.filter(r => r.status === 'pending').length > 0 ? (
                           attendanceRecords.filter(r => r.status === 'pending').map((rec) => (
-                            <div key={rec.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                              <div className="flex gap-4 items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedPendingAttendanceIds.includes(rec.id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedPendingAttendanceIds([...selectedPendingAttendanceIds, rec.id]);
-                                    } else {
-                                      setSelectedPendingAttendanceIds(selectedPendingAttendanceIds.filter(id => id !== rec.id));
-                                    }
-                                  }}
-                                  className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer shrink-0"
-                                />
-                                {/* Captured Selfie Preview */}
-                                <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center shrink-0">
-                                  {rec.livenessPhotoUrl ? (
-                                    <img src={rec.livenessPhotoUrl} alt="Liveness Selfie" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                  ) : (
-                                    <Camera className="w-6 h-6 text-slate-400 animate-pulse" />
-                                  )}
+                            <div key={rec.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 flex flex-col gap-4">
+                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                <div className="flex gap-4 items-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedPendingAttendanceIds.includes(rec.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedPendingAttendanceIds([...selectedPendingAttendanceIds, rec.id]);
+                                      } else {
+                                        setSelectedPendingAttendanceIds(selectedPendingAttendanceIds.filter(id => id !== rec.id));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer shrink-0"
+                                  />
+                                  {/* Captured Selfie Preview */}
+                                  <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center shrink-0">
+                                    {rec.livenessPhotoUrl ? (
+                                      <img src={rec.livenessPhotoUrl} alt="Liveness Selfie" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <Camera className="w-6 h-6 text-slate-400 animate-pulse" />
+                                    )}
+                                  </div>
+
+                                  <div>
+                                    <h5 className="font-bold text-slate-800 text-sm capitalize">{rec.username} <span className="text-[10px] text-slate-400 font-normal">({rec.division})</span></h5>
+                                    <p className="text-xs text-amber-600 font-semibold font-mono mt-0.5">{rec.date} @ {rec.checkInTime}</p>
+                                    <div className="flex gap-3 text-[10px] text-slate-400 mt-2 font-mono">
+                                      <span>🌐 Lat/Lng: {rec.checkInLat.toFixed(4)}, {rec.checkInLng.toFixed(4)}</span>
+                                    </div>
+                                    {/* SOP 2026 Auto-recommendation badge */}
+                                    <div className="mt-2.5 flex items-center gap-1.5 text-[10px] bg-blue-50 text-blue-800 border border-blue-100 rounded-lg px-2.5 py-1 max-w-md">
+                                      <span className="font-bold">✨ Sistem Auto-isi SOP:</span>
+                                      <span>
+                                        Denda: <b className="font-mono">{getApprovalForm(rec.id).fineMode === 'free' ? 'Rp 0' : formatIDRCurrency(getApprovalForm(rec.id).customFineValue || 0)}</b>
+                                        {getApprovalForm(rec.id).quotaDeduction !== 'none' && (
+                                          <> | Potong Jatah: <b className="font-mono">{getApprovalForm(rec.id).quotaDeduction}</b></>
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
                                 </div>
 
-                                <div>
-                                  <h5 className="font-bold text-slate-800 text-sm capitalize">{rec.username} <span className="text-[10px] text-slate-400 font-normal">({rec.division})</span></h5>
-                                  <p className="text-xs text-amber-600 font-semibold font-mono mt-0.5">{rec.date} @ {rec.checkInTime}</p>
-                                  <div className="flex gap-3 text-[10px] text-slate-400 mt-2 font-mono">
-                                    <span>🌐 Lat/Lng: {rec.checkInLat.toFixed(4)}, {rec.checkInLng.toFixed(4)}</span>
-                                  </div>
+                                <div className="flex gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const form = getApprovalForm(rec.id);
+                                      handleApproveAttendance(rec.id, 'approve', form.classification, form.quotaDeduction, form.fineMode, form.customFineValue);
+                                    }}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg transition flex items-center gap-1 cursor-pointer animate-fade-in"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Sah kan</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApproveAttendance(rec.id, 'reject')}
+                                    className="border border-rose-200 hover:bg-rose-50 text-rose-600 font-semibold text-xs py-2 px-3.5 rounded-lg transition cursor-pointer"
+                                  >
+                                    Tolak
+                                  </button>
                                 </div>
                               </div>
 
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleApproveAttendance(rec.id, 'approve')}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Sah kan</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleApproveAttendance(rec.id, 'reject')}
-                                  className="border border-rose-200 hover:bg-rose-50 text-rose-600 font-semibold text-xs py-2 px-3.5 rounded-lg transition cursor-pointer"
-                                >
-                                  Tolak
-                                </button>
+                              {/* CONFIGURATION SUB-PANEL (SOP 2026 Admin Decision Logic) */}
+                              <div className="border-t border-slate-200/60 pt-3 space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                  {/* Classification */}
+                                  <div className="space-y-1 animate-fade-in">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Klasifikasi Absensi</label>
+                                    <select
+                                      value={getApprovalForm(rec.id).classification}
+                                      onChange={(e) => updateApprovalForm(rec.id, { classification: e.target.value as any })}
+                                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                                    >
+                                      <option value="standard">Absen Biasa (Geofence)</option>
+                                      <option value="manual">Absen Manual / Tugas Luar</option>
+                                      <option value="emergency">Absen Darurat (Ban bocor/mogok/hujan)</option>
+                                    </select>
+                                  </div>
+
+                                  {/* Quota Deduction */}
+                                  <div className="space-y-1 animate-fade-in">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Pemotongan Jatah akibat Telat / Diluar Area</label>
+                                    <select
+                                      value={getApprovalForm(rec.id).quotaDeduction}
+                                      onChange={(e) => updateApprovalForm(rec.id, { quotaDeduction: e.target.value as any })}
+                                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                                    >
+                                      <option value="none">Tanpa Potong Jatah (Dispensasi / Bebas)</option>
+                                      <option value="telat">Potong Jatah Telat</option>
+                                      <option value="telatDarurat">Potong Jatah Telat Darurat</option>
+                                      <option value="libur">Potong Jatah Libur (1 Hari)</option>
+                                    </select>
+                                  </div>
+
+                                  {/* Fine Mode */}
+                                  <div className="space-y-1 animate-fade-in">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sanksi Denda</label>
+                                    <select
+                                      value={getApprovalForm(rec.id).fineMode}
+                                      onChange={(e) => updateApprovalForm(rec.id, { fineMode: e.target.value as any })}
+                                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                                    >
+                                      <option value="auto">Denda Otomatis Berjenjang (SOP 2026)</option>
+                                      <option value="free">Bebas Sanksi Denda (Rp 0)</option>
+                                      <option value="custom">Nominal Denda Kustom</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                {getApprovalForm(rec.id).fineMode === 'custom' && (
+                                  <div className="space-y-1 max-w-[200px] animate-fade-in">
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Nominal Denda Kustom (IDR)</label>
+                                    <input
+                                      type="number"
+                                      value={getApprovalForm(rec.id).customFineValue}
+                                      onChange={(e) => updateApprovalForm(rec.id, { customFineValue: Number(e.target.value || 0) })}
+                                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono font-bold"
+                                      placeholder="Rp 50.000"
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))
@@ -3268,6 +3714,58 @@ export default function App() {
                             />
                           </div>
                         </div>
+
+                        {/* Section: Dynamic Overtime Settings */}
+                        <div className="pt-2">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Parameter Lemburan Berjenjang (IDR / Jam)</label>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label htmlFor="set-lembur-h1" className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Lemburan Jam Ke-1 (IDR/jam)</label>
+                              <input
+                                id="set-lembur-h1"
+                                required
+                                type="number"
+                                value={settingsLemburHour1}
+                                onChange={(e) => setSettingsLemburHour1(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label htmlFor="set-lembur-h2" className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Lemburan Jam Ke-2 dst (IDR/jam)</label>
+                              <input
+                                id="set-lembur-h2"
+                                required
+                                type="number"
+                                value={settingsLemburHour2Onwards}
+                                onChange={(e) => setSettingsLemburHour2Onwards(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Dynamic Late Fine Tiers Documentation for SOP 2026 */}
+                        <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-lg space-y-2">
+                          <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Ketentuan Denda & Jatah Berjenjang (SOP 2026)</h6>
+                          <div className="text-[11px] text-slate-500 space-y-1 font-mono leading-relaxed">
+                            <div className="flex justify-between border-b border-slate-100 pb-1">
+                              <span>⏱️ Telat 1 - 10 menit (10:01 - 10:10 WIB):</span>
+                              <span className="font-semibold text-emerald-600">Dispensasi Rp 0</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-100 pb-1">
+                              <span>⏱️ Telat 11 - 30 menit (10:11 - 10:30 WIB):</span>
+                              <span className="font-semibold text-amber-600">Denda Rp 5.000 / Kejadian</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-100 pb-1">
+                              <span>⏱️ Telat 31 - 60 menit (10:31 - 11:00 WIB):</span>
+                              <span className="font-semibold text-amber-700">Denda Rp 50.000 atau Potong 0.5 Libur</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>⏱️ Telat &gt; 60 menit (&gt; 11:00 WIB):</span>
+                              <span className="font-semibold text-rose-600">Denda Rp 100.000 atau Potong 1 Libur</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       <button
@@ -3357,6 +3855,117 @@ export default function App() {
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition cursor-pointer shadow-sm"
               >
                 {customDialog.type === 'confirm' ? 'Ya, Lanjutkan' : 'Ok'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notifications */}
+      <div className="fixed bottom-5 right-5 flex flex-col gap-2 z-[9999] pointer-events-none max-w-sm w-full">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-xs font-semibold animate-fade-in transition-all duration-300 ${
+              toast.type === 'success'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-emerald-100/40'
+                : toast.type === 'error'
+                ? 'bg-rose-50 text-rose-800 border-rose-200 shadow-rose-100/40'
+                : 'bg-slate-50 text-slate-800 border-slate-200 shadow-slate-100/40'
+            }`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full ${
+              toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-rose-500' : 'bg-slate-400'
+            }`} />
+            <span className="flex-1 text-slate-800">{toast.message}</span>
+            <button
+              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              className="text-slate-400 hover:text-slate-600 font-bold ml-2 text-sm pointer-events-auto cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Non-blocking Permission Modal Overlay */}
+      {showPermissionPromptModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9998] animate-fade-in text-slate-800">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-5">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                  <ShieldCheck className="w-5 h-5" />
+                </span>
+                <h3 className="font-display font-bold text-slate-900 text-sm">
+                  Izin Diperlukan (SOP Absensi 2026)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Untuk mematuhi kebijakan absensi berjenjang yang ketat di bawah SOP per 1 Juli 2026, sistem memerlukan verifikasi liveness foto dan validasi koordinat GPS geofence Anda.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {/* GPS Status Card */}
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className={`p-2 rounded-lg ${permissionStates.gps === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                    <MapPin className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">Akses Lokasi (GPS)</h4>
+                    <p className="text-[10px] text-slate-500">Mencegah manipulasi geofence</p>
+                  </div>
+                </div>
+                {permissionStates.gps === 'granted' ? (
+                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">Diaktifkan</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={requestGPSPermission}
+                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition cursor-pointer"
+                  >
+                    Izinkan
+                  </button>
+                )}
+              </div>
+
+              {/* Camera Status Card */}
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className={`p-2 rounded-lg ${permissionStates.camera === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                    <Camera className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">Akses Kamera</h4>
+                    <p className="text-[10px] text-slate-500">Untuk Verifikasi Liveness Lulus</p>
+                  </div>
+                </div>
+                {permissionStates.camera === 'granted' ? (
+                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">Diaktifkan</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={requestCameraPermission}
+                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition cursor-pointer"
+                  >
+                    Izinkan
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+              <p className="text-[10px] text-rose-500 font-semibold leading-relaxed max-w-[200px]">
+                *Fitur absen masuk akan terkunci sepenuhnya jika Anda menolak izin ini.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowPermissionPromptModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer"
+              >
+                Nanti Saja
               </button>
             </div>
           </div>
