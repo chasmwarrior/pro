@@ -7,6 +7,9 @@ echo "==================================================="
 echo "  Absensi App - Ubuntu 22.04 All-in-One Installer  "
 echo "==================================================="
 
+# Simpan direktori proyek saat script ini dijalankan
+APP_DIR=$(pwd)
+
 DOMAIN="warriorcarl.my.id"
 EMAIL="warriorcarl@yahoo.com"
 PORT=3000
@@ -59,8 +62,7 @@ echo "Menginstal platform & build-tools..."
 sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null || true
 
 echo "6. Setup Proyek & Capacitor..."
-# Asumsi script dijalankan di folder proyek
-APP_DIR=$(pwd)
+# Kembali ke direktori proyek utama
 cd $APP_DIR
 
 npm install
