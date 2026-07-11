@@ -64,6 +64,10 @@ if not exist "android\" (
 )
 cd android
 echo Mengunduh dependensi dan membuat APK (Mungkin membutuhkan waktu beberapa menit)...
+
+echo Memperbaiki konflik Kotlin Stdlib Duplicate Classes...
+powershell -Command "(Get-Content android\app\build.gradle) -replace 'dependencies \{', 'configurations { all { exclude group: ''org.jetbrains.kotlin'', module: ''kotlin-stdlib-jdk7'' ; exclude group: ''org.jetbrains.kotlin'', module: ''kotlin-stdlib-jdk8'' } } dependencies {' | Set-Content android\app\build.gradle"
+
 call gradlew.bat assembleDebug
 if %errorlevel% neq 0 (
     echo [ERROR] Gagal membuat APK. Pastikan Android Studio / SDK terinstal dan path Java/Android sudah benar.

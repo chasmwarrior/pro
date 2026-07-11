@@ -1397,6 +1397,10 @@ export default function App() {
       
       const record = attendanceRecords.find(r => r.userId === w.id && r.date === todayDateStr);
       if (record && !record.checkOutTime) {
+        // Jika simulasi posisi tidak akurat, kita bisa override currentLat/Lng pekerja
+        // dengan koordinat check-in terbaru mereka dari record absensi, agar sesuai.
+        w.currentLat = record.checkInLat || w.currentLat;
+        w.currentLng = record.checkInLng || w.currentLng;
         status = 'working';
         if (w.currentLat && w.currentLng) {
           let isInside = false;
