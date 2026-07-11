@@ -3,7 +3,7 @@ import {
   Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
-  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette
+  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapLibreView from './components/MapLibreView';
@@ -16,6 +16,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox'>('dashboard');
   const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset'>('radar');
+  const [radarFilterDivision, setRadarFilterDivision] = useState<string>('all');
+  const [radarFilterStatus, setRadarFilterStatus] = useState<string>('all');
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Custom Dialog Overlay State
@@ -83,6 +86,7 @@ export default function App() {
   const [deviceLat, setDeviceLat] = useState<number | null>(null);
   const [deviceLng, setDeviceLng] = useState<number | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [currentGeofenceStatus, setCurrentGeofenceStatus] = useState<'inside' | 'outside' | 'unknown'>('unknown');
   const [deviceFingerprint, setDeviceFingerprint] = useState('');
   const [isOutsideGeofence, setIsOutsideGeofence] = useState(false);
   const [livenessPhoto, setLivenessPhoto] = useState<string | null>(null);
@@ -126,6 +130,8 @@ export default function App() {
   // Auth Forms
   const [isLogin, setIsLogin] = useState(true);
   const [showPermissionPromptModal, setShowPermissionPromptModal] = useState(false);
+  const [showCheckInMapModal, setShowCheckInMapModal] = useState(false);
+  const [mapModalAction, setMapModalAction] = useState<'checkin' | 'checkout' | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -257,6 +263,38 @@ export default function App() {
   // --------------------------------------------------------------------------
   // INITS & LIFECYCLE
   // --------------------------------------------------------------------------
+
+  // Geofence status change tracker for toast notification
+  useEffect(() => {
+    if (activeTab === 'dashboard' && deviceLat !== null && deviceLng !== null && locations.length > 0) {
+      let isInside = false;
+      locations.forEach(loc => {
+        const R = 6371e3;
+        const dLat = ((loc.lat - deviceLat) * Math.PI) / 180;
+        const dLon = ((loc.lng - deviceLng) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((deviceLat * Math.PI) / 180) *
+            Math.cos((loc.lat * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c;
+        if (distance <= loc.radiusMeter) isInside = true;
+      });
+      
+      const newStatus = isInside ? 'inside' : 'outside';
+      if (currentGeofenceStatus !== 'unknown' && currentGeofenceStatus !== newStatus) {
+        if (newStatus === 'outside') {
+          showToast('Anda telah keluar dari area kantor', 'error');
+        } else {
+          showToast('Anda telah memasuki area kantor', 'success');
+        }
+      }
+      setCurrentGeofenceStatus(newStatus);
+    }
+  }, [deviceLat, deviceLng, locations, activeTab, currentGeofenceStatus]);
+
   useEffect(() => {
     fetchConfig();
     fetchLocations();
@@ -684,6 +722,7 @@ export default function App() {
   };
 
   const capturePhoto = () => {
+    let photoData = null;
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -692,16 +731,18 @@ export default function App() {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const base64Img = canvas.toDataURL('image/jpeg');
-        setLivenessPhoto(base64Img);
-        stopCamera();
+        photoData = canvas.toDataURL('image/jpeg');
       }
     } else {
-      // Automatic fallback simulated photo using Dicebear
       const simulatedSeed = Math.random().toString(36).substring(7);
-      setLivenessPhoto(`https://api.dicebear.com/7.x/identicon/svg?seed=${simulatedSeed}`);
-      setShowCamera(false);
+      photoData = `https://api.dicebear.com/7.x/identicon/svg?seed=${simulatedSeed}`;
     }
+    
+    setLivenessPhoto(photoData);
+    stopCamera();
+    
+    if (mapModalAction === 'checkin') handleCheckIn(photoData);
+    if (mapModalAction === 'checkout') handleCheckOut(photoData);
   };
 
   const stopCamera = () => {
@@ -716,7 +757,8 @@ export default function App() {
   // --------------------------------------------------------------------------
   // WORKER ACTIONS: CHECK IN / OUT & LEAVES
   // --------------------------------------------------------------------------
-  const handleCheckIn = async () => {
+  const handleCheckIn = async (photoOverride?: string | null) => {
+    const finalPhoto = photoOverride !== undefined ? photoOverride : livenessPhoto;
     if (!currentUser || deviceLat === null || deviceLng === null) {
       alert("GPS Anda belum terdeteksi. Silakan muat ulang halaman atau izinkan GPS.");
       return;
@@ -731,7 +773,7 @@ export default function App() {
           lat: deviceLat,
           lng: deviceLng,
           device: deviceFingerprint,
-          livenessPhoto: livenessPhoto,
+          livenessPhoto: finalPhoto,
           isManualCheckIn,
           isEmergencyLate,
           emergencyLateReason
@@ -763,7 +805,8 @@ export default function App() {
     }
   };
 
-  const handleCheckOut = async () => {
+  const handleCheckOut = async (photoOverride?: string | null) => {
+    const finalPhoto = photoOverride !== undefined ? photoOverride : livenessPhoto;
     if (!currentUser || deviceLat === null || deviceLng === null) {
       alert("GPS Anda belum terdeteksi.");
       return;
@@ -1314,7 +1357,48 @@ export default function App() {
   const todayRecord = attendanceRecords.find(r => r.userId === currentUser?.id && r.date === todayDateStr);
 
   // Prepare monthly KPI data for Recharts
-  const monthlyKPIData = React.useMemo(() => {
+  
+  const radarWorkersWithStatus = React.useMemo(() => {
+    return allWorkers.map(w => {
+      let status: 'working' | 'out_of_area' | 'offline' = 'offline';
+      
+      const record = attendanceRecords.find(r => r.userId === w.id && r.date === todayDateStr);
+      if (record && !record.checkOutTime) {
+        status = 'working';
+        if (w.currentLat && w.currentLng) {
+          let isInside = false;
+          locations.forEach(loc => {
+            const R = 6371e3;
+            const dLat = ((loc.lat - w.currentLat) * Math.PI) / 180;
+            const dLon = ((loc.lng - w.currentLng) * Math.PI) / 180;
+            const a =
+              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos((w.currentLat * Math.PI) / 180) *
+                Math.cos((loc.lat * Math.PI) / 180) *
+                Math.sin(dLon / 2) *
+                Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distance = R * c;
+            if (distance <= loc.radiusMeter) isInside = true;
+          });
+          if (!isInside) status = 'out_of_area';
+        } else {
+           status = 'offline';
+        }
+      }
+      return { ...w, todayStatus: status };
+    });
+  }, [allWorkers, attendanceRecords, locations, todayDateStr]);
+
+  const filteredRadarWorkers = React.useMemo(() => {
+    return radarWorkersWithStatus.filter(w => {
+      if (radarFilterDivision !== 'all' && w.division !== radarFilterDivision) return false;
+      if (radarFilterStatus !== 'all' && w.todayStatus !== radarFilterStatus) return false;
+      return true;
+    });
+  }, [radarWorkersWithStatus, radarFilterDivision, radarFilterStatus]);
+
+const monthlyKPIData = React.useMemo(() => {
     const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
     const grouped: Record<string, { month: string; present: number; late: number }> = {};
     
@@ -1751,6 +1835,34 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setActiveTab('history')}
+              title="Riwayat"
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <History className="w-4 h-4 shrink-0" />
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Riwayat</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('stats')}
+              title="Statistik"
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'stats'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4 shrink-0" />
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Statistik</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('calendar')}
               title="Pengajuan Libur"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
@@ -1843,67 +1955,11 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fade-in">
 
-                {/* ----------------------------------------------------------------------
-                   DEVICE PERMISSIONS BANNER / COMPONENT
-                   ---------------------------------------------------------------------- */}
-                <div className="bg-gradient-to-r from-slate-50 to-blue-50/30 border border-slate-200 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                  <div className="space-y-1">
-                    <h4 className="font-display font-bold text-xs text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Manajer Hak Akses & Keamanan Perangkat</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Aplikasi ini memerlukan beberapa izin perangkat agar fitur absensi geofence, deteksi liveness wajah, dan unggahan foto profil dapat berfungsi secara legal dan aman.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2.5 items-center">
-                    {/* GPS Permission Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <MapPin className={`w-3.5 h-3.5 ${permissionStates.gps === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      <span className="font-medium text-slate-600">GPS/Lokasi:</span>
-                      {permissionStates.gps === 'granted' ? (
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={requestGPSPermission}
-                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
-                        >
-                          Minta Izin
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Camera Permission Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <Camera className={`w-3.5 h-3.5 ${permissionStates.camera === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      <span className="font-medium text-slate-600">Kamera:</span>
-                      {permissionStates.camera === 'granted' ? (
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={requestCameraPermission}
-                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
-                        >
-                          Minta Izin
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Storage / Gallery Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <Upload className={`w-3.5 h-3.5 text-emerald-500`} />
-                      <span className="font-medium text-slate-600">Galeri/File:</span>
-                      <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Tersedia</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Geofence / Check-In Live Module */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Geofence / Check-In Live Module */}
+                <div className="flex flex-col gap-6">
                   
+
+
                   {/* Left Column: Tracking Status / Controls */}
                   <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6 shadow-sm text-slate-800">
                     <div>
@@ -1946,73 +2002,23 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Geolocation Denied / Emulated Fallback */}
-                    {permissionStates.gps === 'denied' && (
-                      <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 text-xs text-amber-800 animate-fade-in">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <div className="space-y-1">
-                            <span className="font-bold text-amber-900 block">Izin Lokasi (GPS) Terbatas / Ditolak</span>
-                            <p className="text-[10px] text-amber-700 leading-relaxed font-sans">
-                              Sistem gagal melacak lokasi asli Anda karena izin GPS ditolak browser. Untuk pengujian presensi geofence, silakan masukkan koordinat kustom Anda secara manual di bawah ini.
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-2.5 pt-1">
-                          <div className="space-y-1">
-                            <label className="block text-[9px] text-slate-500 font-bold font-sans uppercase tracking-wider">Latitude</label>
-                            <input
-                              type="number"
-                              step="0.000001"
-                              value={deviceLat !== null ? deviceLat : -6.2088}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                setDeviceLat(isNaN(val) ? null : val);
-                              }}
-                              className="w-full text-xs font-mono px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800"
-                              placeholder="-6.2088"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="block text-[9px] text-slate-500 font-bold font-sans uppercase tracking-wider">Longitude</label>
-                            <input
-                              type="number"
-                              step="0.000001"
-                              value={deviceLng !== null ? deviceLng : 106.8456}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                setDeviceLng(isNaN(val) ? null : val);
-                              }}
-                              className="w-full text-xs font-mono px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800"
-                              placeholder="106.8456"
-                            />
-                          </div>
-                        </div>
 
-                        <div className="flex justify-end gap-2 pt-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDeviceLat(-6.2088);
-                              setDeviceLng(106.8456);
-                            }}
-                            className="px-2.5 py-1 bg-white hover:bg-slate-50 text-[10px] font-semibold text-slate-600 border border-slate-200 rounded-md transition cursor-pointer shadow-xs"
-                          >
-                            Reset ke Jakarta
-                          </button>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Check In / Out Main Buttons */}
                     <div className="space-y-4">
                       {!todayRecord ? (
                         <button
                           type="button"
-                          onClick={handleCheckIn}
+                          onClick={() => {
+                            if (deviceLat === null) {
+                              alert("GPS Anda belum terdeteksi atau izin belum diberikan.");
+                              return;
+                            }
+                            setMapModalAction('checkin'); 
+                            setShowCheckInMapModal(true); 
+                          }}
                           id="btn-check-in"
-                          disabled={isLocating || deviceLat === null}
+                          disabled={isLocating}
                           className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -2078,7 +2084,14 @@ export default function App() {
                       ) : !todayRecord.checkOutTime ? (
                         <button
                           type="button"
-                          onClick={handleCheckOut}
+                          onClick={() => {
+                            if (deviceLat === null) {
+                              alert("GPS Anda belum terdeteksi atau izin belum diberikan.");
+                              return;
+                            }
+                            setMapModalAction('checkout'); 
+                            setShowCheckInMapModal(true); 
+                          }}
                           id="btn-check-out"
                           disabled={isLocating}
                           className="w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
@@ -2096,15 +2109,6 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Force tracking refresh */}
-                      <button
-                        type="button"
-                        onClick={trackDeviceLocation}
-                        className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Gunakan Lokasi Saat Ini (Segarkan GPS)</span>
-                      </button>
                     </div>
 
                     {/* Liveness Camera Capture view */}
@@ -2154,26 +2158,7 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Right Column: Live GPS Maplibre View */}
-                  <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[350px] flex flex-col">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                      <span className="text-xs font-bold text-blue-600 font-display flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-blue-500" />
-                        <span>Peta Koordinat Geofence Karyawan</span>
-                      </span>
-                      <span className="bg-white border border-slate-200 px-3 py-1 rounded-full text-[10px] text-slate-500 font-mono">
-                        Active Tracker: MapLibre GL live
-                      </span>
-                    </div>
-                    <div className="flex-1 h-full min-h-[300px]">
-                      <MapLibreView
-                        userLat={deviceLat}
-                        userLng={deviceLng}
-                        locations={locations}
-                      />
-                    </div>
                   </div>
-                </div>
 
                 {/* Dashboard Metrics (Quotas/Sisa jatah) */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -2185,7 +2170,7 @@ export default function App() {
                     </div>
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Sisa Jatah Libur</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} Hari</p>
+                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-sm font-medium text-slate-400">/ 4 Hari</span></p>
                     </div>
                   </div>
 
@@ -2196,7 +2181,7 @@ export default function App() {
                     </div>
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Toleransi Telat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} Kali</p>
+                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-sm font-medium text-slate-400">/ 2 Kali</span></p>
                     </div>
                   </div>
 
@@ -2207,7 +2192,7 @@ export default function App() {
                     </div>
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Telat Darurat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} Kali</p>
+                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-sm font-medium text-slate-400">/ 2 Kali</span></p>
                     </div>
                   </div>
 
@@ -2218,11 +2203,189 @@ export default function App() {
                     </div>
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Pulang Cepat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} Kali</p>
+                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-sm font-medium text-slate-400">/ 3 Kali</span></p>
                     </div>
                   </div>
                 </div>
 
+                              {/* ----------------------------------------------------------------------
+                   DEVICE PERMISSIONS BANNER / COMPONENT
+                   ---------------------------------------------------------------------- */}
+                <div className="bg-gradient-to-r from-slate-50 to-blue-50/30 border border-slate-200 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+                  <div className="space-y-1">
+                    <h4 className="font-display font-bold text-xs text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      <span>Manajer Hak Akses & Keamanan Perangkat</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Aplikasi ini memerlukan beberapa izin perangkat agar fitur absensi geofence, deteksi liveness wajah, dan unggahan foto profil dapat berfungsi secara legal dan aman.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2.5 items-center">
+                    {/* GPS Permission Pill */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
+                      <MapPin className={`w-3.5 h-3.5 ${permissionStates.gps === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
+                      <span className="font-medium text-slate-600">GPS/Lokasi:</span>
+                      {permissionStates.gps === 'granted' ? (
+                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={requestGPSPermission}
+                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
+                        >
+                          Minta Izin
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Camera Permission Pill */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
+                      <Camera className={`w-3.5 h-3.5 ${permissionStates.camera === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
+                      <span className="font-medium text-slate-600">Kamera:</span>
+                      {permissionStates.camera === 'granted' ? (
+                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={requestCameraPermission}
+                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
+                        >
+                          Minta Izin
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Storage / Gallery Pill */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
+                      <Upload className={`w-3.5 h-3.5 text-emerald-500`} />
+                      <span className="font-medium text-slate-600">Galeri/File:</span>
+                      <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Tersedia</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================================
+               TAB: HISTORY
+               ========================================================================= */}
+            {activeTab === 'history' && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Worker Attendance Logs History & statistics */}
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm text-slate-800">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-blue-500" />
+                      <h3 className="font-display font-semibold text-slate-800">Log Riwayat Kehadiran Anda</h3>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Quick Export Button */}
+                      <button
+                        type="button"
+                        onClick={handleExportUserLogsCSV}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-1.5 px-3 rounded-lg transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        title="Ekspor CSV riwayat saat ini"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Ekspor CSV</span>
+                      </button>
+
+                      {/* Cumulated statistics */}
+                      <div className="hidden md:flex gap-4 text-xs font-semibold">
+                        <span className="text-emerald-600">Bonus: <span>{formatIDRCurrency(totalBonusesForUser)}</span></span>
+                        <span className="text-rose-600">Denda: <span>{formatIDRCurrency(totalFinesForUser)}</span></span>
+                      </div>
+
+                      {/* Filter trigger */}
+                      <select
+                        value={historyFilterStatus}
+                        onChange={(e) => setHistoryFilterStatus(e.target.value as any)}
+                        className="bg-white border border-slate-200 rounded-lg text-xs py-1.5 px-3 focus:outline-none text-slate-700"
+                      >
+                        <option value="all">Semua Log</option>
+                        <option value="approved">Disetujui (Approved)</option>
+                        <option value="pending">Tertunda (Pending)</option>
+                        <option value="rejected">Ditolak (Rejected)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto custom-scrollbar border border-slate-100 rounded-lg">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 font-mono text-[10px] uppercase tracking-wider">
+                          <th className="py-1.5 px-3">Tanggal</th>
+                          <th className="py-1.5 px-3">Jam Masuk (Geofence)</th>
+                          <th className="py-1.5 px-3">Jam Keluar (Geofence)</th>
+                          <th className="py-1.5 px-3">Geofence Status</th>
+                          <th className="py-1.5 px-3">Denda (Telat)</th>
+                          <th className="py-1.5 px-3">Bonus (Disiplin)</th>
+                          <th className="py-1.5 px-3">Status</th>
+                          <th className="py-1.5 px-3">Keterangan</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredUserRecords.length > 0 ? (
+                          filteredUserRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-blue-50/40 text-slate-600 transition-colors duration-150">
+                              <td className="py-1.5 px-3 font-mono font-medium text-slate-500">{record.date}</td>
+                              <td className="py-1.5 px-3">
+                                <p className="font-bold text-slate-800">{record.checkInTime}</p>
+                                <span className="text-[9px] text-slate-400 font-mono">{record.checkInLocationName}</span>
+                              </td>
+                              <td className="py-1.5 px-3">
+                                {record.checkOutTime ? (
+                                  <>
+                                    <p className="font-bold text-slate-800">{record.checkOutTime}</p>
+                                    <span className="text-[9px] text-slate-400 font-mono">{record.checkOutLocationName}</span>
+                                  </>
+                                ) : (
+                                  <span className="text-slate-300 font-mono">-</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-3">
+                                {record.isOutsideGeofence ? (
+                                  <span className="text-amber-700 bg-amber-50 border border-amber-200/60 py-0.2 px-1.5 rounded-full font-bold text-[9px]">Luar Area</span>
+                                ) : (
+                                  <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/60 py-0.2 px-1.5 rounded-full font-bold text-[9px]">Dalam Area</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-3 font-mono text-rose-600 font-semibold">{formatIDRCurrency(record.fineAmount)}</td>
+                              <td className="py-1.5 px-3 font-mono text-emerald-600 font-semibold">{formatIDRCurrency(record.bonusAmount)}</td>
+                              <td className="py-1.5 px-3">
+                                <span className={`font-semibold py-0.2 px-2 rounded-full text-[9px] uppercase ${
+                                  record.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' :
+                                  record.status === 'pending' ? 'bg-amber-50 text-amber-700 border border-amber-200/60' :
+                                  'bg-rose-50 text-rose-700 border border-rose-200/60'
+                                }`}>
+                                  {record.status}
+                                </span>
+                              </td>
+                              <td className="py-1.5 px-3 text-slate-400 italic text-[10px] max-w-xs truncate">{record.note || '-'}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={8} className="p-8 text-center text-slate-400 italic">
+                              Tidak ada log kehadiran yang sesuai dengan kriteria filter.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================================
+               TAB: STATS
+               ========================================================================= */}
+            {activeTab === 'stats' && (
+              <div className="space-y-6 animate-fade-in">
                 {/* KPI Overview Chart using Recharts */}
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm text-slate-800 animate-fade-in">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 mb-4 border-b border-slate-100 gap-3">
@@ -2401,112 +2564,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Worker Attendance Logs History & statistics */}
-                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm text-slate-800">
-                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-blue-500" />
-                      <h3 className="font-display font-semibold text-slate-800">Log Riwayat Kehadiran Anda</h3>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      {/* Quick Export Button */}
-                      <button
-                        type="button"
-                        onClick={handleExportUserLogsCSV}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-1.5 px-3 rounded-lg transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                        title="Ekspor CSV riwayat saat ini"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Ekspor CSV</span>
-                      </button>
-
-                      {/* Cumulated statistics */}
-                      <div className="hidden md:flex gap-4 text-xs font-semibold">
-                        <span className="text-emerald-600">Bonus: <span>{formatIDRCurrency(totalBonusesForUser)}</span></span>
-                        <span className="text-rose-600">Denda: <span>{formatIDRCurrency(totalFinesForUser)}</span></span>
-                      </div>
-
-                      {/* Filter trigger */}
-                      <select
-                        value={historyFilterStatus}
-                        onChange={(e) => setHistoryFilterStatus(e.target.value as any)}
-                        className="bg-white border border-slate-200 rounded-lg text-xs py-1.5 px-3 focus:outline-none text-slate-700"
-                      >
-                        <option value="all">Semua Log</option>
-                        <option value="approved">Disetujui (Approved)</option>
-                        <option value="pending">Tertunda (Pending)</option>
-                        <option value="rejected">Ditolak (Rejected)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto custom-scrollbar border border-slate-100 rounded-lg">
-                    <table className="w-full text-left border-collapse text-[11px]">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 font-mono text-[10px] uppercase tracking-wider">
-                          <th className="py-1.5 px-3">Tanggal</th>
-                          <th className="py-1.5 px-3">Jam Masuk (Geofence)</th>
-                          <th className="py-1.5 px-3">Jam Keluar (Geofence)</th>
-                          <th className="py-1.5 px-3">Geofence Status</th>
-                          <th className="py-1.5 px-3">Denda (Telat)</th>
-                          <th className="py-1.5 px-3">Bonus (Disiplin)</th>
-                          <th className="py-1.5 px-3">Status</th>
-                          <th className="py-1.5 px-3">Keterangan</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {filteredUserRecords.length > 0 ? (
-                          filteredUserRecords.map((record) => (
-                            <tr key={record.id} className="hover:bg-blue-50/40 text-slate-600 transition-colors duration-150">
-                              <td className="py-1.5 px-3 font-mono font-medium text-slate-500">{record.date}</td>
-                              <td className="py-1.5 px-3">
-                                <p className="font-bold text-slate-800">{record.checkInTime}</p>
-                                <span className="text-[9px] text-slate-400 font-mono">{record.checkInLocationName}</span>
-                              </td>
-                              <td className="py-1.5 px-3">
-                                {record.checkOutTime ? (
-                                  <>
-                                    <p className="font-bold text-slate-800">{record.checkOutTime}</p>
-                                    <span className="text-[9px] text-slate-400 font-mono">{record.checkOutLocationName}</span>
-                                  </>
-                                ) : (
-                                  <span className="text-slate-300 font-mono">-</span>
-                                )}
-                              </td>
-                              <td className="py-1.5 px-3">
-                                {record.isOutsideGeofence ? (
-                                  <span className="text-amber-700 bg-amber-50 border border-amber-200/60 py-0.2 px-1.5 rounded-full font-bold text-[9px]">Luar Area</span>
-                                ) : (
-                                  <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/60 py-0.2 px-1.5 rounded-full font-bold text-[9px]">Dalam Area</span>
-                                )}
-                              </td>
-                              <td className="py-1.5 px-3 font-mono text-rose-600 font-semibold">{formatIDRCurrency(record.fineAmount)}</td>
-                              <td className="py-1.5 px-3 font-mono text-emerald-600 font-semibold">{formatIDRCurrency(record.bonusAmount)}</td>
-                              <td className="py-1.5 px-3">
-                                <span className={`font-semibold py-0.2 px-2 rounded-full text-[9px] uppercase ${
-                                  record.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' :
-                                  record.status === 'pending' ? 'bg-amber-50 text-amber-700 border border-amber-200/60' :
-                                  'bg-rose-50 text-rose-700 border border-rose-200/60'
-                                }`}>
-                                  {record.status}
-                                </span>
-                              </td>
-                              <td className="py-1.5 px-3 text-slate-400 italic text-[10px] max-w-xs truncate">{record.note || '-'}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={8} className="p-8 text-center text-slate-400 italic">
-                              Tidak ada log kehadiran yang sesuai dengan kriteria filter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
+                              </div>
             )}
 
             {/* =========================================================================
@@ -2840,6 +2898,29 @@ export default function App() {
                         </p>
                       </div>
                       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 shrink-0">
+                        {/* Filters */}
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={radarFilterDivision}
+                            onChange={(e) => setRadarFilterDivision(e.target.value)}
+                            className="bg-slate-50 border border-slate-200 text-slate-700 text-xs rounded-lg px-2 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="all">Semua Divisi</option>
+                            {config?.divisions.map(d => (
+                              <option key={d} value={d}>{d}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={radarFilterStatus}
+                            onChange={(e) => setRadarFilterStatus(e.target.value)}
+                            className="bg-slate-50 border border-slate-200 text-slate-700 text-xs rounded-lg px-2 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="all">Semua Status</option>
+                            <option value="working">Hadir (Sedang Bekerja)</option>
+                            <option value="out_of_area">Luar Area</option>
+                            <option value="offline">Off / Offline</option>
+                          </select>
+                        </div>
                         {/* Auto-Refresh Toggle */}
                         <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 shadow-xs">
                           <div className="flex flex-col">
@@ -2873,13 +2954,28 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="h-[450px] rounded-2xl overflow-hidden border border-slate-200">
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap gap-4 text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                        <span className="font-medium text-slate-600">Sedang Bekerja (Dalam Geofence)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]"></div>
+                        <span className="font-medium text-slate-600">Luar Area</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-slate-400"></div>
+                        <span className="font-medium text-slate-600">Off / Offline</span>
+                      </div>
+                    </div>
+                    
+                    <div className="h-[450px] rounded-2xl overflow-hidden border border-slate-200 relative">
                       <MapLibreView
                         userLat={null}
                         userLng={null}
                         locations={locations}
                         radarMode={true}
-                        workers={allWorkers}
+                        workers={filteredRadarWorkers}
                       />
                     </div>
                   </div>
@@ -3887,6 +3983,63 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* Check In Map Modal */}
+      {showCheckInMapModal && (
+        <div className="fixed inset-0 z-[9997] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-display font-bold text-slate-800 flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-blue-600" />
+                Peta Koordinat Geofence
+              </h3>
+              <button onClick={() => setShowCheckInMapModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 h-[400px] relative bg-slate-100">
+              <MapLibreView
+                userLat={deviceLat}
+                userLng={deviceLng}
+                locations={locations}
+              />
+            </div>
+            <div className="p-5 border-t border-slate-100 bg-white space-y-4">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500">Status Geofence:</span>
+                <span className={`font-bold ${currentGeofenceStatus === 'inside' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {currentGeofenceStatus === 'inside' ? 'Dalam Area Kantor' : 'Luar Area Kantor'}
+                </span>
+              </div>
+              {/* Force tracking refresh */}
+              <button
+                type="button"
+                onClick={trackDeviceLocation}
+                className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Gunakan Lokasi Saat Ini (Segarkan GPS)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCheckInMapModal(false);
+                  if (currentGeofenceStatus !== 'inside') {
+                    startCamera();
+                  } else {
+                    if (mapModalAction === 'checkin') handleCheckIn(null);
+                    if (mapModalAction === 'checkout') handleCheckOut(null);
+                  }
+                }}
+                className={`w-full text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer ${mapModalAction === 'checkin' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+              >
+                {mapModalAction === 'checkin' ? <CheckCircle2 className="w-4 h-4" /> : <LogOut className="w-4 h-4" />}
+                <span>{currentGeofenceStatus !== 'inside' ? 'Lanjut Verifikasi Wajah (Luar Area)' : (mapModalAction === 'checkin' ? 'Konfirmasi Check-In' : 'Konfirmasi Check-Out')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Non-blocking Permission Modal Overlay */}
       {showPermissionPromptModal && (

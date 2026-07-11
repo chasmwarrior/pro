@@ -27,6 +27,7 @@ export interface User {
   currentLng?: number;
   lastActiveAt?: string;
   leaveQuota: UserLeaveQuota;
+  todayStatus?: 'working' | 'out_of_area' | 'offline';
 }
 
 export interface AttendanceRecord {

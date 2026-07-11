@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { OfficeLocation } from '../types';
 import { Navigation, MapPin, Compass, AlertCircle } from 'lucide-react';
 
@@ -36,11 +37,11 @@ interface MapLibreViewProps {
   zoom?: number;
   interactive?: boolean;
   radarMode?: boolean; // For admin radar view showing multiple workers
-  workers?: Array<{ id: string; username: string; currentLat?: number; currentLng?: number; division: string; position: string }>;
+  workers?: Array<{ id: string; username: string; currentLat?: number; currentLng?: number; division: string; position: string; todayStatus?: string }>;
   onLocationSelect?: (lat: number, lng: number) => void;
 }
 
-export default function MapLibreView({
+const MapLibreView = React.memo(function MapLibreView({
   userLat,
   userLng,
   locations,
@@ -56,72 +57,116 @@ export default function MapLibreView({
   const geofenceIdsRef = useRef<string[]>([]);
   const [mapError, setMapError] = useState<string | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  
+  const onLocationSelectRef = useRef(onLocationSelect);
+  useEffect(() => {
+    onLocationSelectRef.current = onLocationSelect;
+  }, [onLocationSelect]);
 
   // Initialize Map
   useEffect(() => {
+    console.log('[MapLibreView] Initialize Map effect triggered. Container:', !!mapContainerRef.current);
     if (!mapContainerRef.current) return;
 
-    // Use default coordinates (Jakarta) if none provided
-    const centerLat = userLat || -6.2088;
-    const centerLng = userLng || 106.8456;
-
-    try {
-      // Cleanup previous map instance
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
+    let initTimeout: NodeJS.Timeout;
+    let resizeObserver: ResizeObserver;
+    
+    const initMap = () => {
+      if (!mapContainerRef.current) return;
+      const rect = mapContainerRef.current.getBoundingClientRect();
+      console.log('[MapLibreView] Checking container rect:', rect.width, 'x', rect.height);
+      
+      // Wait for valid dimensions before initializing
+      if (rect.width === 0 || rect.height === 0) {
+         console.log('[MapLibreView] Container has 0 dimensions, retrying in 50ms...');
+         initTimeout = setTimeout(initMap, 50);
+         return;
       }
+      
+      console.log('[MapLibreView] Valid dimensions found, proceeding to initialize.');
 
-      // Initialize maplibre-gl with beautiful CartoDB Voyager style (requires no API Key)
-      const map = new maplibregl.Map({
-        container: mapContainerRef.current,
-        style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-        center: [centerLng, centerLat],
-        zoom: zoom,
-        interactive: interactive,
-        attributionControl: false
-      });
+      // Use default coordinates (Jakarta) if none provided
+      const centerLat = userLat || -6.2088;
+      const centerLng = userLng || 106.8456;
 
-      map.addControl(new maplibregl.NavigationControl(), 'top-right');
-
-      map.on('load', () => {
-        setIsMapLoaded(true);
-        setMapError(null);
-      });
-
-      map.on('error', (e) => {
-        console.warn('MapLibre GL Error:', e);
-        // Do not crash the app, handle map errors gracefully
-      });
-
-      // Handle map click if selecting custom location (Admin office picker)
-      if (onLocationSelect) {
-        map.on('click', (e) => {
-          onLocationSelect(e.lngLat.lat, e.lngLat.lng);
-        });
-      }
-
-      mapRef.current = map;
-
-      // Handle Resize using ResizeObserver
-      const resizeObserver = new ResizeObserver(() => {
-        map.resize();
-      });
-      resizeObserver.observe(mapContainerRef.current);
-
-      return () => {
-        resizeObserver.disconnect();
+      try {
+        // Cleanup previous map instance
         if (mapRef.current) {
           mapRef.current.remove();
           mapRef.current = null;
         }
-      };
-    } catch (err: any) {
-      console.error('Failed to initialize MapLibre map:', err);
-      setMapError('WebGL is disabled or unsupported in this container/browser.');
-    }
-  }, [onLocationSelect]);
 
+        // Initialize maplibre-gl with beautiful CartoDB Voyager style (requires no API Key)
+        console.log('[MapLibreView] Initializing MapLibre GL instance...');
+        const map = new maplibregl.Map({
+          container: mapContainerRef.current,
+          style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+          center: [centerLng, centerLat],
+          zoom: zoom,
+          interactive: interactive,
+          attributionControl: false
+        });
+
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        map.on('load', () => {
+          setIsMapLoaded(true);
+          setMapError(null);
+          map.resize();
+        });
+
+        map.on('error', (e) => {
+          console.warn('MapLibre GL Error:', e);
+          // Do not crash the app, handle map errors gracefully
+        });
+
+        // Handle map click if selecting custom location (Admin office picker)
+        map.on('click', (e) => {
+          if (onLocationSelectRef.current) {
+            onLocationSelectRef.current(e.lngLat.lat, e.lngLat.lng);
+          }
+        });
+
+        mapRef.current = map;
+
+        // Handle Resize using ResizeObserver
+        resizeObserver = new ResizeObserver(() => {
+          if (mapRef.current) {
+            console.log('[MapLibreView] ResizeObserver triggered map.resize()');
+            mapRef.current.resize();
+          }
+        });
+        
+        if (mapContainerRef.current) {
+          resizeObserver.observe(mapContainerRef.current);
+        }
+        
+        // Delay initial resize to give the modal time to calculate dimensions
+        setTimeout(() => {
+          if (mapRef.current) mapRef.current.resize();
+        }, 100);
+        setTimeout(() => {
+          if (mapRef.current) mapRef.current.resize();
+        }, 300);
+
+      } catch (err: any) {
+        console.error('Failed to initialize MapLibre map:', err);
+        setMapError('WebGL is disabled or unsupported in this container/browser.');
+      }
+    };
+
+    initMap();
+
+    return () => {
+      if (initTimeout) clearTimeout(initTimeout);
+      if (resizeObserver) resizeObserver.disconnect();
+      if (mapRef.current) {
+        console.log('[MapLibreView] Cleaning up MapLibre instance');
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []); // Remove userLat and userLng from dependencies since we only want to init once and let maplibregl handle panning/updating
   // Handle markers update
   useEffect(() => {
     const map = mapRef.current;
@@ -238,8 +283,8 @@ export default function MapLibreView({
           const el = document.createElement('div');
           el.className = 'relative flex flex-col items-center justify-center';
           el.innerHTML = `
-            <div class="absolute w-8 h-8 bg-sky-500/20 rounded-full animate-ping" style="animation-duration: 4s"></div>
-            <div class="relative z-10 w-7 h-7 bg-sky-600 border border-white rounded-full shadow-lg flex items-center justify-center overflow-hidden">
+            ${worker.todayStatus !== 'offline' ? `<div class="absolute w-10 h-10 ${worker.todayStatus === 'working' ? 'bg-emerald-500/30' : 'bg-amber-500/30'} rounded-full animate-ping" style="animation-duration: 3s"></div>` : ''}
+            <div class="relative z-10 w-7 h-7 ${worker.todayStatus === 'working' ? 'bg-emerald-500' : worker.todayStatus === 'out_of_area' ? 'bg-amber-500' : 'bg-slate-400'} border border-white rounded-full shadow-lg flex items-center justify-center overflow-hidden">
               <span class="text-white font-bold text-[10px] uppercase">${worker.username.substring(0, 2)}</span>
             </div>
             <div class="absolute top-8 bg-slate-900 text-white text-[9px] px-1.5 py-0.5 rounded shadow border border-slate-700 font-medium whitespace-nowrap">
@@ -346,7 +391,7 @@ export default function MapLibreView({
 
   return (
     <div className="w-full h-full relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
-      <div ref={mapContainerRef} className="maplibre-container" />
+      <div ref={mapContainerRef} className="maplibre-container absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
       
       {/* Tiny overlay indicator of precision */}
       <div className="absolute bottom-2 left-2 bg-slate-900/90 text-white text-[10px] font-mono px-2 py-1 rounded shadow border border-slate-700 flex items-center gap-1.5 z-10 pointer-events-none">
@@ -355,4 +400,6 @@ export default function MapLibreView({
       </div>
     </div>
   );
-}
+});
+
+export default MapLibreView;

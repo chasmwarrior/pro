@@ -1,15 +1,12 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
+const fs = require('fs');
+let code = fs.readFileSync('src/main.tsx', 'utf-8');
 
-// Suppress Vite HMR connection logs in the preview environment
-const originalDebug = console.debug;
-console.debug = function(...args) {
-  if (typeof args[0] === 'string' && args[0].includes('[vite]')) return;
-  originalDebug.apply(console, args);
-};
-
-const originalError = console.error;
+const target = `const originalError = console.error;
+console.error = function(...args) {
+  if (typeof args[0] === 'string' && args[0].includes('[vite] failed to connect to websocket')) return;
+  originalError.apply(console, args);
+};`;
+const replace = `const originalError = console.error;
 console.error = function(...args) {
   if (typeof args[0] === 'string' && (args[0].includes('[vite] failed to connect to websocket') || args[0].includes('WebSocket closed without opened'))) return;
   if (args[0] && args[0].message && args[0].message.includes('WebSocket closed without opened')) return;
@@ -21,11 +18,7 @@ window.addEventListener('unhandledrejection', event => {
     event.preventDefault();
   }
 });
-
-import './index.css';
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+`;
+code = code.replace(target, replace);
+fs.writeFileSync('src/main.tsx', code);
+console.log('Patched vite websocket error logs in main.tsx');
