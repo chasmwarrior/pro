@@ -1,4 +1,32 @@
 import React, { useEffect, useState, useRef } from 'react';
+
+
+// API Helper for Capacitor
+const getApiBaseUrl = () => {
+  // Use ts-ignore to bypass Vite specific types in standard TS config
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
+    // @ts-ignore
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  // If we are in Capacitor and loading from file/capacitor schema, use the live domain
+  if (window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
+    return 'https://warriorcarl.my.id';
+  }
+  // Default to relative (for standard web)
+  return '';
+};
+const apiBaseUrl = getApiBaseUrl();
+
+// Wrap fetch to automatically prepend the base URL for /api routes
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  if (typeof args[0] === 'string' && args[0].startsWith('/api')) {
+    args[0] = apiBaseUrl + args[0];
+  }
+  return originalFetch(...args);
+};
+
 import {
   Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
