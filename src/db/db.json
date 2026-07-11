@@ -11,10 +11,10 @@
       "position": "Director",
       "photoUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
       "leaveQuota": {
-        "libur": 12,
-        "telat": 5,
-        "telatDarurat": 3,
-        "pulangCepat": 5
+        "libur": 4,
+        "telat": 2,
+        "telatDarurat": 2,
+        "pulangCepat": 3
       },
       "lastCheckInDevice": "PC-Admin-01",
       "currentLat": -6.2088,
@@ -32,10 +32,10 @@
       "position": "Supervisor Gudang",
       "photoUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
       "leaveQuota": {
-        "libur": 12,
-        "telat": 5,
-        "telatDarurat": 3,
-        "pulangCepat": 5
+        "libur": 4,
+        "telat": 2,
+        "telatDarurat": 2,
+        "pulangCepat": 3
       },
       "lastCheckInDevice": "Android-Device-02",
       "currentLat": -6.2349,
@@ -53,8 +53,8 @@
       "position": "Kurir Delivery",
       "photoUrl": "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150",
       "leaveQuota": {
-        "libur": 10,
-        "telat": 4,
+        "libur": 4,
+        "telat": 2,
         "telatDarurat": 2,
         "pulangCepat": 3
       },
@@ -74,10 +74,10 @@
       "position": "Staff Gudang",
       "photoUrl": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
       "leaveQuota": {
-        "libur": 12,
-        "telat": 5,
-        "telatDarurat": 3,
-        "pulangCepat": 5
+        "libur": 4,
+        "telat": 2,
+        "telatDarurat": 2,
+        "pulangCepat": 3
       }
     }
   ],

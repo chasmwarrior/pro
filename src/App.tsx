@@ -11,7 +11,7 @@ import {
   Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
-import MapLibreView from './components/MapLibreView';
+import MapView from './components/MapView';
 import CalendarView from './components/CalendarView';
 import ReportExport from './components/ReportExport';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -3003,7 +3003,7 @@ const monthlyKPIData = React.useMemo(() => {
                     </div>
                     
                     <div className="h-[450px] rounded-2xl overflow-hidden border border-slate-200 relative">
-                      <MapLibreView
+                      <MapView
                         userLat={null}
                         userLng={null}
                         locations={locations}
@@ -4030,8 +4030,8 @@ const monthlyKPIData = React.useMemo(() => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 h-[400px] relative bg-slate-100">
-              <MapLibreView
+            <div className="w-full relative bg-slate-100" style={{ height: "400px", minHeight: "400px" }}>
+              <MapView
                 userLat={deviceLat}
                 userLng={deviceLng}
                 locations={locations}
