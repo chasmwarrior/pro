@@ -36,8 +36,8 @@ if ! command -v pm2 &> /dev/null; then
     sudo npm install -g pm2
 fi
 
-echo "4. Menginstal OpenJDK 17 (Syarat Capacitor/Android)..."
-sudo apt-get install -y openjdk-17-jdk
+echo "4. Menginstal OpenJDK 21 (Syarat Capacitor/Android API 35)..."
+sudo apt-get install -y openjdk-21-jdk
 
 echo "5. Menginstal Android SDK (Command Line Tools)..."
 ANDROID_HOME="/opt/android-sdk"
