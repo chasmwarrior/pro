@@ -58,7 +58,7 @@ npm run build
 
 echo "6. Menjalankan Backend dengan PM2..."
 pm2 stop absensi || true
-pm2 start dist/server.cjs --name "absensi"
+NODE_ENV=production pm2 start dist/server.cjs --name "absensi"
 pm2 save
 # pm2 startup | grep "sudo pm2" | bash || true
 

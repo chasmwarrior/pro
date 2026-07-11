@@ -18,7 +18,7 @@ read -p "Masukkan pilihan (0-4): " choice
 case $choice in
     1)
         echo "Memulai server..."
-        pm2 start absensi || echo "Proses PM2 absensi belum ada. Jalankan ./install.sh terlebih dahulu."
+        NODE_ENV=production pm2 start absensi || echo "Proses PM2 absensi belum ada. Jalankan ./install.sh terlebih dahulu."
         sudo systemctl start nginx
         echo "Server berhasil dimulai."
         ;;

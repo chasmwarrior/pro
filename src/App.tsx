@@ -9,8 +9,9 @@ const getApiBaseUrl = () => {
     // @ts-ignore
     return import.meta.env.VITE_API_BASE_URL;
   }
-  // If we are in Capacitor and loading from file/capacitor schema, use the live domain
-  if (window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
+  // If we are in Capacitor and loading natively, use the live domain
+  // @ts-ignore
+  if (window?.Capacitor?.isNativePlatform?.() || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
     return 'https://warriorcarl.my.id';
   }
   // Default to relative (for standard web)
