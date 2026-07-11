@@ -99,40 +99,18 @@ const MapLibreView = React.memo(function MapLibreView({
         // Initialize maplibre-gl with beautiful CartoDB Voyager style (requires no API Key)
         console.log('[MapLibreView] Initializing MapLibre GL instance...');
 
-        const mapStyle: maplibregl.StyleSpecification = {
-            version: 8,
-            sources: {
-              'osm-tiles': {
-                type: 'raster',
-                tiles: [
-                  'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-                ],
-                tileSize: 256,
-                attribution: '© OpenStreetMap contributors'
-              }
-            },
-            layers: [
-              {
-                id: 'osm-layer',
-                type: 'raster',
-                source: 'osm-tiles',
-                minzoom: 0,
-                maxzoom: 19
-              }
-            ]
-          };
 
-        // Menggunakan OpenStreetMap Raster sebagai basemap yang jauh lebih stabil terhadap limitasi CORS dan WebView
+        // Initialize maplibre-gl with beautiful CartoDB Voyager style (requires no API Key)
+        console.log('[MapLibreView] Initializing MapLibre GL instance...');
         const map = new maplibregl.Map({
           container: mapContainerRef.current,
-          style: mapStyle,
+          style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
           center: [centerLng, centerLat],
           zoom: zoom,
           interactive: interactive,
           attributionControl: false
         });
+
 
 
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
@@ -307,6 +285,7 @@ const MapLibreView = React.memo(function MapLibreView({
 
         // Center map to user position
         map.easeTo({ center: [userLng, userLat], zoom: 15 });
+        map.resize();
       }
 
       // 3. Plot Radar Workers Marker
@@ -424,7 +403,7 @@ const MapLibreView = React.memo(function MapLibreView({
   }
 
   return (
-    <div className="w-full h-full min-h-[300px] relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100" style={{ flexGrow: 1, minHeight: "300px", minWidth: "100%" }}>
+    <div className="w-full h-full relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
       <div ref={mapContainerRef} className="maplibre-container absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
       
       {/* Tiny overlay indicator of precision */}
