@@ -1,9 +1,29 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
+import cors from 'cors';
+import { Server as SocketIOServer } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 
+
 const app = express();
+const server = http.createServer(app);
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on('connection', (socket) => {
+  // When a worker sends their live location
+  socket.on('workerLocationUpdate', (data) => {
+    // Broadcast this location update to all other connected clients (like admins)
+    socket.broadcast.emit('radarUpdate', data);
+  });
+});
+
 const PORT = 3000;
 
 // Set up JSON parsing with a large size limit to support base64 liveness photos
@@ -1356,7 +1376,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
 }

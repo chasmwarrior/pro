@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { io } from 'socket.io-client';
 
 
 
@@ -47,6 +48,7 @@ window.fetch = async (...args) => {
 export default function App() {
   // 1. App State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [radarLiveUpdates, setRadarLiveUpdates] = useState<Record<string, { lat: number, lng: number }>>({});
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox'>('dashboard');
   const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset'>('radar');
   const [radarFilterDivision, setRadarFilterDivision] = useState<string>('all');
@@ -353,6 +355,57 @@ export default function App() {
       }
     }
   }, [currentUser]);
+
+
+  // Broadcast location if worker is actively checked in
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'supervisor') return;
+
+    // Check if worker is active
+    const todayDateStr = new Date().toLocaleDateString('en-CA');
+    const record = attendanceRecords.find(r => r.userId === currentUser.id && r.date === todayDateStr);
+
+    // Only track if they checked in, but have not checked out
+    if (record && !record.checkOutTime) {
+      const socket = io(apiBaseUrl || window.location.origin);
+
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          socket.emit('workerLocationUpdate', {
+            userId: currentUser.id,
+            lat: latitude,
+            lng: longitude
+          });
+        },
+        (err) => console.error("Socket GPS Error:", err),
+        { enableHighAccuracy: true, maximumAge: 0 }
+      );
+
+      return () => {
+        navigator.geolocation.clearWatch(watchId);
+        socket.disconnect();
+      };
+    }
+  }, [currentUser, attendanceRecords]);
+
+  // Admin Radar Socket Listener
+  useEffect(() => {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'supervisor')) return;
+    if (adminSubTab !== 'radar') return;
+
+    const socket = io(apiBaseUrl || window.location.origin);
+    socket.on('radarUpdate', (data: { userId: string, lat: number, lng: number }) => {
+      setRadarLiveUpdates(prev => ({
+        ...prev,
+        [data.userId]: { lat: data.lat, lng: data.lng }
+      }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [currentUser, adminSubTab]);
 
   // Periodic automatic refresh of worker locations every 30 seconds
   useEffect(() => {
@@ -1396,12 +1449,22 @@ export default function App() {
       let status: 'working' | 'out_of_area' | 'offline' = 'offline';
       
       const record = attendanceRecords.find(r => r.userId === w.id && r.date === todayDateStr);
+
+      // We only allow tracking if they are actively working (checked in but not out).
       if (record && !record.checkOutTime) {
-        // Jika simulasi posisi tidak akurat, kita bisa override currentLat/Lng pekerja
-        // dengan koordinat check-in terbaru mereka dari record absensi, agar sesuai.
-        w.currentLat = record.checkInLat || w.currentLat;
-        w.currentLng = record.checkInLng || w.currentLng;
         status = 'working';
+
+        // Map over radarLiveUpdates (Socket.io) instead of mocking check-in or static positions
+        const livePos = radarLiveUpdates[w.id];
+        if (livePos) {
+          w.currentLat = livePos.lat;
+          w.currentLng = livePos.lng;
+        } else {
+          // Fallback to check-in location ONLY if we have no socket ping yet, but wipe currentLat/Lng otherwise.
+          w.currentLat = record.checkInLat;
+          w.currentLng = record.checkInLng;
+        }
+
         if (w.currentLat && w.currentLng) {
           let isInside = false;
           locations.forEach(loc => {
@@ -1422,10 +1485,14 @@ export default function App() {
         } else {
            status = 'offline';
         }
+      } else {
+        // Not actively working, wipe location to prevent tracking out of hours
+        w.currentLat = undefined;
+        w.currentLng = undefined;
       }
       return { ...w, todayStatus: status };
     });
-  }, [allWorkers, attendanceRecords, locations, todayDateStr]);
+  }, [allWorkers, attendanceRecords, locations, todayDateStr, radarLiveUpdates]);
 
   const filteredRadarWorkers = React.useMemo(() => {
     return radarWorkersWithStatus.filter(w => {
