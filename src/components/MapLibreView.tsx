@@ -98,14 +98,42 @@ const MapLibreView = React.memo(function MapLibreView({
 
         // Initialize maplibre-gl with beautiful CartoDB Voyager style (requires no API Key)
         console.log('[MapLibreView] Initializing MapLibre GL instance...');
+
+        const mapStyle: maplibregl.StyleSpecification = {
+            version: 8,
+            sources: {
+              'osm-tiles': {
+                type: 'raster',
+                tiles: [
+                  'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+                ],
+                tileSize: 256,
+                attribution: '© OpenStreetMap contributors'
+              }
+            },
+            layers: [
+              {
+                id: 'osm-layer',
+                type: 'raster',
+                source: 'osm-tiles',
+                minzoom: 0,
+                maxzoom: 19
+              }
+            ]
+          };
+
+        // Menggunakan OpenStreetMap Raster sebagai basemap yang jauh lebih stabil terhadap limitasi CORS dan WebView
         const map = new maplibregl.Map({
           container: mapContainerRef.current,
-          style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+          style: mapStyle,
           center: [centerLng, centerLat],
           zoom: zoom,
           interactive: interactive,
           attributionControl: false
         });
+
 
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
 

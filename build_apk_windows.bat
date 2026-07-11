@@ -4,6 +4,15 @@ echo   Absensi App - Build APK Windows (VS Code)
 echo ===================================================
 echo.
 
+echo 0. Memeriksa JAVA_HOME...
+if "%JAVA_HOME%"=="" (
+    echo [INFO] JAVA_HOME tidak ditemukan.
+    echo Menjalankan skrip PowerShell untuk mengunduh dan mengatur Java ^& Android SDK secara otomatis...
+    echo.
+    powershell.exe -ExecutionPolicy Bypass -File "%~dp0setup_build_windows.ps1"
+    exit /b
+)
+
 echo 1. Memeriksa Node.js...
 where node >nul 2>nul
 if %errorlevel% neq 0 (
