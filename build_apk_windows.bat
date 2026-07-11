@@ -16,6 +16,9 @@ echo Node.js terinstal.
 echo.
 echo 2. Menginstal Dependensi NPM (Jika belum)...
 call npm install
+echo Memastikan Capacitor terinstal...
+call npm install @capacitor/core
+call npm install -D @capacitor/cli @capacitor/android
 
 echo.
 echo 3. Build Web App (Vite)...
@@ -45,6 +48,11 @@ call npx cap sync android
 
 echo.
 echo 5. Build APK dengan Gradle...
+if not exist "android\" (
+    echo [ERROR] Folder "android" gagal dibuat.
+    pause
+    exit /b
+)
 cd android
 echo Mengunduh dependensi dan membuat APK (Mungkin membutuhkan waktu beberapa menit)...
 call gradlew.bat assembleDebug

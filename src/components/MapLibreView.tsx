@@ -142,12 +142,18 @@ const MapLibreView = React.memo(function MapLibreView({
         }
         
         // Delay initial resize to give the modal time to calculate dimensions
-        setTimeout(() => {
+                setTimeout(() => {
           if (mapRef.current) mapRef.current.resize();
         }, 100);
         setTimeout(() => {
           if (mapRef.current) mapRef.current.resize();
         }, 300);
+        setTimeout(() => {
+          if (mapRef.current) mapRef.current.resize();
+        }, 500);
+        setTimeout(() => {
+          if (mapRef.current) mapRef.current.resize();
+        }, 1000);
 
       } catch (err: any) {
         console.error('Failed to initialize MapLibre map:', err);
@@ -390,7 +396,7 @@ const MapLibreView = React.memo(function MapLibreView({
   }
 
   return (
-    <div className="w-full h-full relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
+    <div className="w-full h-full min-h-[300px] relative rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100" style={{ flexGrow: 1, minHeight: "300px", minWidth: "100%" }}>
       <div ref={mapContainerRef} className="maplibre-container absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
       
       {/* Tiny overlay indicator of precision */}

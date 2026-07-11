@@ -1,6 +1,21 @@
 import React, { useEffect, useState, useRef } from 'react';
 
 
+
+
+
+import {
+  Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
+  CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
+  Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
+  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp
+} from 'lucide-react';
+import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
+import MapLibreView from './components/MapLibreView';
+import CalendarView from './components/CalendarView';
+import ReportExport from './components/ReportExport';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+
 // API Helper for Capacitor
 const getApiBaseUrl = () => {
   // Use ts-ignore to bypass Vite specific types in standard TS config
@@ -28,17 +43,6 @@ window.fetch = async (...args) => {
   return originalFetch(...args);
 };
 
-import {
-  Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
-  CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
-  Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
-  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp
-} from 'lucide-react';
-import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
-import MapLibreView from './components/MapLibreView';
-import CalendarView from './components/CalendarView';
-import ReportExport from './components/ReportExport';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 export default function App() {
   // 1. App State
