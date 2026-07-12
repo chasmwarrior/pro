@@ -200,6 +200,13 @@ function ensureDB() {
           logoUrl: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=100&h=100&fit=crop&q=80"
         },
         dendaTelat: 50000,
+      rules: [
+        {"id": "r1", "name": "Bonus Tepat Waktu (Pagi)", "startTime": "00:00", "endTime": "10:00", "type": "bonus", "amount": 10000},
+        {"id": "r2", "name": "Denda Telat Ringan", "startTime": "10:01", "endTime": "10:30", "type": "denda", "amount": 5000},
+        {"id": "r3", "name": "Denda Telat Sedang", "startTime": "10:31", "endTime": "11:00", "type": "denda", "amount": 50000},
+        {"id": "r4", "name": "Denda Telat Berat", "startTime": "11:01", "endTime": "23:59", "type": "denda", "amount": 100000},
+        {"id": "r5", "name": "Lembur Jam ke-1", "startTime": "20:01", "endTime": "21:00", "type": "lembur", "amount": 20000}
+      ],
         bonusTepatWaktu: 25000,
         bonusDisiplinBulanan: 200000,
         divisions: [
@@ -267,25 +274,44 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c; // Distance in meters
 }
 
-// Calculate late fine based on check-in time according to SOP 1 Juli 2026
-function calculateLateFine(timeStr: string): number {
-  const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
-  const totalMinutes = hours * 60 + minutes + seconds / 60;
-  const startMinutes = 10 * 60; // 10:00 WIB
-  const diffMinutes = totalMinutes - startMinutes;
 
-  if (diffMinutes <= 10) {
-    return 0; // Up to 10:10:59 is fine, late starts at 10:11 WIB
+// Helper to parse HH:MM to minutes since midnight
+function timeStrToMinutes(timeStr: string): number {
+  const [h, m, s = 0] = timeStr.split(':').map(Number);
+  return h * 60 + m + s / 60;
+}
+
+// Calculate late fine or bonus based on dynamic config rules
+function calculateDynamicIncentives(timeStr: string, rules: any[]): { fineAmount: number, bonusAmount: number } {
+  const checkInMinutes = timeStrToMinutes(timeStr);
+  let fineAmount = 0;
+  let bonusAmount = 0;
+
+  if (rules && rules.length > 0) {
+    for (const rule of rules) {
+      const startMin = timeStrToMinutes(rule.startTime);
+      const endMin = timeStrToMinutes(rule.endTime);
+
+      if (checkInMinutes >= startMin && checkInMinutes <= endMin) {
+        if (rule.type === 'denda') {
+          fineAmount = Math.max(fineAmount, rule.amount); // Take highest applicable fine
+        } else if (rule.type === 'bonus') {
+          bonusAmount += rule.amount; // Accumulate bonuses
+        }
+      }
+    }
+  } else {
+    // Legacy fallback to SOP 2026 hardcoded logic if no dynamic rules
+    const startMinutes = 10 * 60; // 10:00 WIB
+    const diffMinutes = checkInMinutes - startMinutes;
+
+    if (diffMinutes > 10 && diffMinutes <= 30) fineAmount = 5000;
+    else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 50000;
+    else if (diffMinutes > 60) fineAmount = 100000;
+    else bonusAmount = 25000; // Legacy bonusTepatWaktu
   }
 
-  if (diffMinutes > 10 && diffMinutes <= 30) {
-    return 5000; // 10.11 – 10.30: Rp5.000
-  }
-  if (diffMinutes > 30 && diffMinutes <= 60) {
-    return 50000; // 10.31 – 11.00: Rp50.000
-  }
-  // diffMinutes > 60
-  return 100000; // > 11.00: Rp100.000
+  return { fineAmount, bonusAmount };
 }
 
 /* ==========================================================================
@@ -308,6 +334,13 @@ app.post('/api/config', (req, res) => {
   db.config = { ...db.config, ...req.body };
   writeDB(db);
   res.json({ success: true, config: db.config });
+});
+
+app.post('/api/config/rules', (req, res) => {
+  const db = readDB();
+  db.config.rules = req.body.rules;
+  writeDB(db);
+  res.json({ success: true, rules: db.config.rules });
 });
 
 // 3. Auth Endpoints
@@ -405,6 +438,19 @@ app.get('/api/users/pending', (req, res) => {
 app.get('/api/users', (req, res) => {
   const db = readDB();
   res.json(db.users);
+});
+
+app.post('/api/users/update-quota', (req, res) => {
+  const { userId, libur } = req.body;
+  const db = readDB();
+  const user = db.users.find((u: any) => u.id === userId);
+  if (user) {
+    if (libur !== undefined) user.leaveQuota.libur = libur;
+    writeDB(db);
+    res.json({ success: true, user });
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
 });
 
 app.post('/api/users/approve', (req, res) => {
@@ -505,10 +551,12 @@ app.post('/api/attendance/check-in', (req, res) => {
   // Working Hours (SOP 1 Juli 2026: Jam masuk 10:00 WIB, telat mulai 10:11 WIB)
   const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
   const totalCheckInMinutes = hours * 60 + minutes + seconds / 60;
-  const isLate = totalCheckInMinutes >= 10 * 60 + 11; // >= 10:11 WIB is late
+  // Use dynamic rules to determine base fine/bonus amounts and late status
+  const { fineAmount: baseFine, bonusAmount: baseBonus } = calculateDynamicIncentives(timeStr, db.config.rules);
+  const isLate = baseFine > 0 || (totalCheckInMinutes >= 10 * 60 + 11); // Fallback to 10:11 for legacy support
 
-  let fineAmount = 0;
-  let bonusAmount = 0;
+  let fineAmount = baseFine;
+  let bonusAmount = baseBonus;
   let usedQuotaType: 'telat' | 'telatDarurat' | 'libur' | null = null;
   let note = '';
 
@@ -569,13 +617,11 @@ app.post('/api/attendance/check-in', (req, res) => {
           note = `Terlambat masuk ke-3 diganti potong jatah libur (Tanpa denda).`;
         } else {
           // No leave quota left
-          fineAmount = calculateLateFine(timeStr);
-          note = `Terlambat masuk ke-3. Jatah libur habis untuk pengganti denda. Denda dihitung sejak 10:00.`;
+          note = `Terlambat masuk ke-3. Jatah libur habis untuk pengganti denda. Denda dihitung sesuai aturan dinamis.`;
         }
       } else {
         // Late #4 onwards: standard denda from 10:00
-        fineAmount = calculateLateFine(timeStr);
-        note = `Terlambat masuk ke-${previousLateCount + 1} (Jatah jatah telat habis). Denda dihitung sejak 10:00.`;
+        note = `Terlambat masuk ke-${previousLateCount + 1} (Jatah jatah telat habis). Denda dihitung sesuai aturan dinamis.`;
       }
     }
 
@@ -585,9 +631,12 @@ app.post('/api/attendance/check-in', (req, res) => {
       note += ' Wajib potong jatah libur karena telat masuk setelah jam 14:00.';
     }
   } else {
-    // On-time check-in
-    bonusAmount = db.config.bonusTepatWaktu;
-    note = 'Tepat waktu.';
+    // On-time check-in handled dynamically
+    if (bonusAmount > 0) {
+      note = 'Tepat waktu (Bonus didapatkan).';
+    } else {
+      note = 'Tepat waktu.';
+    }
   }
 
   const newRecord = {
@@ -1334,6 +1383,13 @@ app.post('/api/admin/factory-reset', (req, res) => {
         logoUrl: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=100&h=100&fit=crop&q=80"
       },
       dendaTelat: 50000,
+      rules: [
+        {"id": "r1", "name": "Bonus Tepat Waktu (Pagi)", "startTime": "00:00", "endTime": "10:00", "type": "bonus", "amount": 10000},
+        {"id": "r2", "name": "Denda Telat Ringan", "startTime": "10:01", "endTime": "10:30", "type": "denda", "amount": 5000},
+        {"id": "r3", "name": "Denda Telat Sedang", "startTime": "10:31", "endTime": "11:00", "type": "denda", "amount": 50000},
+        {"id": "r4", "name": "Denda Telat Berat", "startTime": "11:01", "endTime": "23:59", "type": "denda", "amount": 100000},
+        {"id": "r5", "name": "Lembur Jam ke-1", "startTime": "20:01", "endTime": "21:00", "type": "lembur", "amount": 20000}
+      ],
       bonusTepatWaktu: 25000,
       bonusDisiplinBulanan: 200000,
       divisions: [

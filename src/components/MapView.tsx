@@ -22,6 +22,7 @@ interface MapViewProps {
     currentLat: number | null;
     currentLng: number | null;
     todayStatus: 'working' | 'out_of_area' | 'offline';
+    photoUrl?: string;
   }>;
 }
 
@@ -54,7 +55,7 @@ const userIcon = createCustomIcon('#2563eb', 'P'); // Blue for user
 const locationIcon = createCustomIcon('#0ea5e9', 'K'); // Light blue for office
 
 // Worker Icons based on status
-const getWorkerIcon = (status: string, username: string) => {
+const getWorkerIcon = (status: string, username: string, photoUrl?: string) => {
   let color = '#94a3b8'; // offline
   let animate = '';
   if (status === 'working') {
@@ -64,18 +65,22 @@ const getWorkerIcon = (status: string, username: string) => {
     color = '#f59e0b'; // amber
   }
 
+  const innerHtml = photoUrl
+    ? `<img src="${photoUrl}" class="w-full h-full object-cover" />`
+    : `<span class="text-white font-bold text-[10px] uppercase">${username.substring(0, 2)}</span>`;
+
   return L.divIcon({
     className: 'custom-div-icon',
     html: `
-      <div class="relative flex flex-col items-center justify-center">
-        ${status !== 'offline' ? `<div class="absolute w-10 h-10 rounded-full ${animate}" style="background-color: ${color}40; animation-duration: 3s"></div>` : ''}
-        <div class="relative z-10 w-7 h-7 border border-white rounded-full shadow-lg flex items-center justify-center overflow-hidden" style="background-color: ${color};">
-          <span class="text-white font-bold text-[10px] uppercase">${username.substring(0, 2)}</span>
+      <div class="relative flex flex-col items-center justify-center group">
+        ${status !== 'offline' ? `<div class="absolute w-12 h-12 rounded-full ${animate}" style="background-color: ${color}40; animation-duration: 3s"></div>` : ''}
+        <div class="relative z-10 w-9 h-9 border-2 border-white rounded-full shadow-xl flex items-center justify-center overflow-hidden transition-transform transform group-hover:scale-110" style="background-color: ${color}; border-color: ${color};">
+          ${innerHtml}
         </div>
       </div>
     `,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
   });
 };
 
@@ -209,12 +214,12 @@ const MapView = React.memo(function MapView({
             <Marker
               key={worker.id}
               position={[worker.currentLat, worker.currentLng]}
-              icon={getWorkerIcon(worker.todayStatus, worker.username)}
+              icon={getWorkerIcon(worker.todayStatus, worker.username, worker.photoUrl)}
             >
               <Popup>
-                <div className="text-sm font-semibold">{worker.username}</div>
-                <div className="text-xs text-slate-500">{worker.division}</div>
-                <div className="text-xs mt-1 capitalize font-medium">Status: {worker.todayStatus.replace('_', ' ')}</div>
+                <div className="text-sm font-semibold text-slate-800">{worker.username}</div>
+                <div className="text-[10px] text-slate-500 uppercase">{worker.division}</div>
+                <div className="text-xs mt-1 capitalize font-bold text-blue-600">Status: {worker.todayStatus.replace('_', ' ')}</div>
               </Popup>
             </Marker>
           );

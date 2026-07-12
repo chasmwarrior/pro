@@ -166,6 +166,7 @@ export default function App() {
 
   // Auth Forms
   const [isLogin, setIsLogin] = useState(true);
+  // Modal state remains for potential future use or manual triggering but we remove the auto-popup
   const [showPermissionPromptModal, setShowPermissionPromptModal] = useState(false);
   const [showCheckInMapModal, setShowCheckInMapModal] = useState(false);
   const [mapModalAction, setMapModalAction] = useState<'checkin' | 'checkout' | null>(null);
@@ -226,6 +227,7 @@ export default function App() {
   const [isBulkApprovingAttendance, setIsBulkApprovingAttendance] = useState(false);
   const [leaveRemarks, setLeaveRemarks] = useState<Record<string, string>>({});
   const [isAutoRefreshRadar, setIsAutoRefreshRadar] = useState<boolean>(true);
+  const [radarRefreshInterval, setRadarRefreshInterval] = useState<number>(30000);
   const [isAnnouncementDismissed, setIsAnnouncementDismissed] = useState<boolean>(false);
   const [theme, setTheme] = useState<'blue' | 'emerald' | 'dark' | 'rose'>(() => {
     return (localStorage.getItem('app-theme') as 'blue' | 'emerald' | 'dark' | 'rose') || 'blue';
@@ -409,16 +411,16 @@ export default function App() {
     };
   }, [currentUser, adminSubTab]);
 
-  // Periodic automatic refresh of worker locations every 30 seconds
+  // Periodic automatic refresh of worker locations
   useEffect(() => {
     if (adminSubTab !== 'radar' || !isAutoRefreshRadar) return;
 
     const interval = setInterval(() => {
       fetchAllWorkers();
-    }, 30000);
+    }, radarRefreshInterval);
 
     return () => clearInterval(interval);
-  }, [adminSubTab, isAutoRefreshRadar]);
+  }, [adminSubTab, isAutoRefreshRadar, radarRefreshInterval]);
 
   // Track coordinates in background and manage global events
   useEffect(() => {
@@ -1347,7 +1349,8 @@ export default function App() {
           normalEndTime: "20:00:00",
           rateHour1: Number(settingsLemburHour1),
           rateHour2Onwards: Number(settingsLemburHour2Onwards)
-        }
+        },
+        rules: config?.rules || []
       })
     });
 
@@ -1798,25 +1801,6 @@ const monthlyKPIData = React.useMemo(() => {
               </form>
             )}
 
-            {/* Predefined Accounts Assistance Card */}
-            <div className="mt-8 border-t border-slate-200 pt-5 text-left bg-slate-50 -mx-8 -mb-8 p-6">
-              <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
-                <span>Akun Uji Coba Demo (Instan):</span>
-              </h5>
-              <div className="grid grid-cols-2 gap-3 text-[10px] font-mono text-slate-600">
-                <div className="p-2 border border-slate-200 bg-white rounded-lg">
-                  <span className="text-blue-600 font-semibold font-sans block">⚙️ Akun Admin</span>
-                  <p className="mt-1">ID: <b className="text-slate-800">admin@absensi.com</b></p>
-                  <p>Pass: <b className="text-slate-800">admin</b></p>
-                </div>
-                <div className="p-2 border border-slate-200 bg-white rounded-lg">
-                  <span className="text-blue-600 font-semibold font-sans block">👤 Akun Worker (Budi)</span>
-                  <p className="mt-1">ID: <b className="text-slate-800">budi@absensi.com</b></p>
-                  <p>Pass: <b className="text-slate-800">password</b></p>
-                </div>
-              </div>
-            </div>
           </div>
         </main>
       )}
@@ -1934,81 +1918,69 @@ const monthlyKPIData = React.useMemo(() => {
                </div>
             </div>
 
-            {/* Time widget inside sidebar */}
-            <div className={`${isSidebarCollapsed ? 'hidden' : 'flex'} mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-3 items-center gap-3`}>
-                <Clock className="w-5 h-5 text-blue-400 animate-pulse shrink-0" />
-                <div>
-                  <span className="font-mono font-bold text-sm text-blue-400 block leading-tight">
-                    {serverTime.toTimeString().split(' ')[0]}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block leading-none mt-1">
-                    {serverTime.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}
-                  </span>
-                </div>
-            </div>
-
+            {/* Time widget removed from sidebar */}
             <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar">
 <button
               type="button"
               onClick={() => { setActiveTab('dashboard'); setIsMobileSidebarOpen(false); }}
               title="Dashboard Kerja"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'dashboard'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <Activity className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Dashboard Kerja</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Dashboard Kerja</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setActiveTab('history'); setIsMobileSidebarOpen(false); }}
               title="Riwayat"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'history'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <History className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Riwayat</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Riwayat</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setActiveTab('stats'); setIsMobileSidebarOpen(false); }}
               title="Statistik"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'stats'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <TrendingUp className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Statistik</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Statistik</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setActiveTab('calendar'); setIsMobileSidebarOpen(false); }}
               title="Pengajuan Libur"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'calendar'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <CalendarIcon className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Pengajuan Libur</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Pengajuan Libur</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setActiveTab('inbox'); setIsMobileSidebarOpen(false); }}
               title="Inbox Pengumuman"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
                 activeTab === 'inbox'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
@@ -2016,7 +1988,7 @@ const monthlyKPIData = React.useMemo(() => {
             >
               <div className="flex items-center gap-2.5">
                 <Bell className="w-4 h-4 shrink-0" />
-                <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Inbox Pengumuman</span>
+                <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Inbox Pengumuman</span>
               </div>
               {activeAnnouncements.length > 0 && (
                 <span className="bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 leading-none">
@@ -2029,14 +2001,14 @@ const monthlyKPIData = React.useMemo(() => {
               type="button"
               onClick={() => { setActiveTab('profile'); setIsMobileSidebarOpen(false); }}
               title="Profil & Password"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'profile'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <UserIcon className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Profil & Password</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Profil & Password</span>
             </button>
 
 
@@ -2047,6 +2019,42 @@ const monthlyKPIData = React.useMemo(() => {
                 <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
                   Sistem Admin
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('users');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Kelola Pegawai"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'users'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Users className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Kelola Pegawai</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('demo');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Info Akun Demo"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'demo'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <HelpCircle className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Info Akun Demo</span>
+                </button>
 
                 <button
                   type="button"
@@ -2836,7 +2844,7 @@ const monthlyKPIData = React.useMemo(() => {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div>
                     <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider font-mono">Penjadwalan Libur</span>
-                    <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Sistem Manajemen Cuti & Jatah Libur</h2>
+                    <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Sistem Manajemen Libur & Jatah Libur</h2>
                     <p className="text-xs text-slate-500 mt-1">
                       Kunci tanggal libur Anda untuk mengunci slot jadwal kerja tim. Pengajuan konflik otomatis masuk antrean Supervisor.
                     </p>
@@ -3071,25 +3079,38 @@ const monthlyKPIData = React.useMemo(() => {
                           </select>
                         </div>
                         {/* Auto-Refresh Toggle */}
-                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 shadow-xs">
-                          <div className="flex flex-col">
+                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-xs">
+                          <div className="flex flex-col gap-1">
                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono leading-none">Auto Refresh</span>
-                            <span className="text-xs font-bold text-slate-700 mt-1">{isAutoRefreshRadar ? "Aktif (30s)" : "Nonaktif"}</span>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={radarRefreshInterval}
+                                onChange={(e) => setRadarRefreshInterval(Number(e.target.value))}
+                                disabled={!isAutoRefreshRadar}
+                                className="text-xs bg-white border border-slate-200 rounded px-1 text-slate-700 disabled:opacity-50"
+                              >
+                                <option value="10000">10s</option>
+                                <option value="30000">30s</option>
+                                <option value="60000">1m</option>
+                                <option value="300000">5m</option>
+                                <option value="3600000">1j</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setIsAutoRefreshRadar(!isAutoRefreshRadar)}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                  isAutoRefreshRadar ? 'bg-blue-600' : 'bg-slate-300'
+                                }`}
+                                aria-label="Toggle Auto Refresh Radar"
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                    isAutoRefreshRadar ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsAutoRefreshRadar(!isAutoRefreshRadar)}
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              isAutoRefreshRadar ? 'bg-blue-600' : 'bg-slate-300'
-                            }`}
-                            aria-label="Toggle Auto Refresh Radar"
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                isAutoRefreshRadar ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
                         </div>
 
                         <button
@@ -3477,7 +3498,7 @@ const monthlyKPIData = React.useMemo(() => {
                     {/* 3. Leave Requests Approvals with conflict indicator */}
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-                        <h4 className="font-display font-bold text-sm text-slate-800">Antrean Persetujuan Libur / Cuti</h4>
+                        <h4 className="font-display font-bold text-sm text-slate-800">Antrean Persetujuan Libur / Libur</h4>
                         <p className="text-xs text-slate-500 mt-0.5">Memantau libur terjadwal. Konflik divisi yang sama ditandai otomatis untuk tinjauan administrator.</p>
                       </div>
 
@@ -3960,6 +3981,65 @@ const monthlyKPIData = React.useMemo(() => {
                           </div>
                         </div>
 
+
+                        {/* Dynamic Rules Engine UI */}
+                        <div className="pt-4 border-t border-slate-100 mt-4">
+                          <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-3">Aturan Jam & Insentif Kustom</h6>
+                          <div className="space-y-3">
+                            {config?.rules?.map((rule, idx) => (
+                              <div key={rule.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-lg border border-slate-200 text-[10px]">
+                                <input type="text" value={rule.name} onChange={e => {
+                                  const newRules = [...(config.rules || [])];
+                                  newRules[idx].name = e.target.value;
+                                  setConfig({...config, rules: newRules});
+                                }} className="flex-1 bg-white border border-slate-200 px-2 py-1 rounded" placeholder="Nama Aturan" />
+
+                                <input type="time" value={rule.startTime} onChange={e => {
+                                  const newRules = [...(config.rules || [])];
+                                  newRules[idx].startTime = e.target.value;
+                                  setConfig({...config, rules: newRules});
+                                }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
+
+                                <span className="text-slate-400">-</span>
+
+                                <input type="time" value={rule.endTime} onChange={e => {
+                                  const newRules = [...(config.rules || [])];
+                                  newRules[idx].endTime = e.target.value;
+                                  setConfig({...config, rules: newRules});
+                                }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
+
+                                <select value={rule.type} onChange={e => {
+                                  const newRules = [...(config.rules || [])];
+                                  newRules[idx].type = e.target.value as any;
+                                  setConfig({...config, rules: newRules});
+                                }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded">
+                                  <option value="denda">Denda</option>
+                                  <option value="bonus">Bonus</option>
+                                  <option value="lembur">Lembur</option>
+                                </select>
+
+                                <input type="number" value={rule.amount} onChange={e => {
+                                  const newRules = [...(config.rules || [])];
+                                  newRules[idx].amount = Number(e.target.value);
+                                  setConfig({...config, rules: newRules});
+                                }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded font-mono font-bold" placeholder="Rp" />
+
+                                <button type="button" onClick={() => {
+                                  const newRules = [...(config.rules || [])];
+                                  newRules.splice(idx, 1);
+                                  setConfig({...config, rules: newRules});
+                                }} className="text-rose-500 hover:bg-rose-100 p-1.5 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                              </div>
+                            ))}
+                            <button type="button" onClick={() => {
+                              const newRule = { id: 'r'+Date.now(), name: 'Aturan Baru', startTime: '00:00', endTime: '23:59', type: 'denda' as any, amount: 0 };
+                              setConfig({...config!, rules: [...(config?.rules || []), newRule]});
+                            }} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-1.5 px-3 rounded flex items-center gap-1">
+                              <Plus className="w-3 h-3" /> Tambah Aturan Kustom
+                            </button>
+                          </div>
+                        </div>
+
                         {/* Section: Dynamic Overtime Settings */}
                         <div className="pt-2">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Parameter Lemburan Berjenjang (IDR / Jam)</label>
@@ -4032,6 +4112,97 @@ const monthlyKPIData = React.useMemo(() => {
                       records={attendanceRecords}
                       workers={allWorkers}
                     />
+                  </div>
+                )}
+
+                {/* ----------------------------------------------------------------------
+                   SUBTAB: KELOLA PEGAWAI
+                   ---------------------------------------------------------------------- */}
+                {adminSubTab === 'users' && (
+                  <div className="space-y-6 animate-fade-in text-slate-800">
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                      <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                        <h4 className="font-display font-bold text-sm text-slate-800">Kelola Pegawai Aktif</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">Atur detail pegawai, termasuk jatah libur dan bonus bulanan yang spesifik.</p>
+                      </div>
+
+                      <div className="p-3 overflow-x-auto custom-scrollbar border border-slate-100 rounded-lg">
+                        <table className="w-full text-left border-collapse text-[11px]">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 font-mono text-[10px] uppercase tracking-wider">
+                              <th className="py-1.5 px-3">Pegawai</th>
+                              <th className="py-1.5 px-3">Posisi</th>
+                              <th className="py-1.5 px-3">Jatah Libur / Bulan</th>
+                              <th className="py-1.5 px-3">Tindakan</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {allWorkers.map((worker) => (
+                              <tr key={worker.id} className="hover:bg-blue-50/40 text-slate-700 transition-colors duration-150">
+                                <td className="py-1.5 px-3">
+                                  <div className="flex items-center gap-2">
+                                    <img src={worker.photoUrl} alt="Avatar" className="w-6 h-6 rounded-full" />
+                                    <span className="font-bold capitalize text-slate-800">{worker.username}</span>
+                                  </div>
+                                </td>
+                                <td className="py-1.5 px-3 text-slate-600">{worker.division} <br/><span className="text-[9px] text-slate-400">{worker.position}</span></td>
+                                <td className="py-1.5 px-3 font-mono text-[10px]">
+                                  {worker.leaveQuota.libur} Hari
+                                </td>
+                                <td className="py-1.5 px-3">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const newLibur = prompt("Masukkan jumlah jatah libur baru untuk " + worker.username, String(worker.leaveQuota.libur));
+                                      if (newLibur !== null) {
+                                        const res = await fetch('/api/users/update-quota', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: worker.id, libur: Number(newLibur) })
+                                        });
+                                        if (res.ok) {
+                                          alert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.");
+                                          fetchAllWorkers();
+                                        }
+                                      }
+                                    }}
+                                    className="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Atur Jatah Libur
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ----------------------------------------------------------------------
+                   SUBTAB: INFO AKUN DEMO
+                   ---------------------------------------------------------------------- */}
+                {adminSubTab === 'demo' && (
+                  <div className="space-y-6 animate-fade-in text-slate-800">
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm p-6">
+                      <h4 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2 mb-4">
+                        <HelpCircle className="w-4 h-4 text-blue-600" />
+                        Info Akun Uji Coba Demo
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] font-mono">
+                        <div className="p-3 border border-slate-200 bg-slate-50 rounded-lg">
+                          <span className="text-blue-600 font-semibold font-sans block mb-1">⚙️ Akun Admin</span>
+                          <p>ID: <b className="text-slate-800">admin@absensi.com</b></p>
+                          <p>Pass: <b className="text-slate-800">admin</b></p>
+                        </div>
+                        <div className="p-3 border border-slate-200 bg-slate-50 rounded-lg">
+                          <span className="text-blue-600 font-semibold font-sans block mb-1">👤 Akun Worker (Budi)</span>
+                          <p>ID: <b className="text-slate-800">budi@absensi.com</b></p>
+                          <p>Pass: <b className="text-slate-800">password</b></p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -4192,89 +4363,6 @@ const monthlyKPIData = React.useMemo(() => {
         </div>
       )}
 
-      {/* Non-blocking Permission Modal Overlay */}
-      {showPermissionPromptModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9998] animate-fade-in text-slate-800">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-5">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
-                  <ShieldCheck className="w-5 h-5" />
-                </span>
-                <h3 className="font-display font-bold text-slate-900 text-sm">
-                  Izin Diperlukan (SOP Absensi 2026)
-                </h3>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Untuk mematuhi kebijakan absensi berjenjang yang ketat di bawah SOP per 1 Juli 2026, sistem memerlukan verifikasi liveness foto dan validasi koordinat GPS geofence Anda.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {/* GPS Status Card */}
-              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className={`p-2 rounded-lg ${permissionStates.gps === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                    <MapPin className="w-4 h-4" />
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">Akses Lokasi (GPS)</h4>
-                    <p className="text-[10px] text-slate-500">Mencegah manipulasi geofence</p>
-                  </div>
-                </div>
-                {permissionStates.gps === 'granted' ? (
-                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">Diaktifkan</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={requestGPSPermission}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition cursor-pointer"
-                  >
-                    Izinkan
-                  </button>
-                )}
-              </div>
-
-              {/* Camera Status Card */}
-              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className={`p-2 rounded-lg ${permissionStates.camera === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                    <Camera className="w-4 h-4" />
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">Akses Kamera</h4>
-                    <p className="text-[10px] text-slate-500">Untuk Verifikasi Liveness Lulus</p>
-                  </div>
-                </div>
-                {permissionStates.camera === 'granted' ? (
-                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">Diaktifkan</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={requestCameraPermission}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition cursor-pointer"
-                  >
-                    Izinkan
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <p className="text-[10px] text-rose-500 font-semibold leading-relaxed max-w-[200px]">
-                *Fitur absen masuk akan terkunci sepenuhnya jika Anda menolak izin ini.
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowPermissionPromptModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer"
-              >
-                Nanti Saja
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
