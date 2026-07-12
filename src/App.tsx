@@ -372,6 +372,7 @@ export default function App() {
     // Only track if they checked in, but have not checked out
     if (record && !record.checkOutTime) {
       const socket = io(apiBaseUrl || window.location.origin);
+      socket.emit('authenticate', { userId: currentUser.id });
 
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
@@ -399,6 +400,7 @@ export default function App() {
     if (adminSubTab !== 'radar') return;
 
     const socket = io(apiBaseUrl || window.location.origin);
+    socket.emit('authenticate', { userId: currentUser.id });
     socket.on('radarUpdate', (data: { userId: string, lat: number, lng: number }) => {
       setRadarLiveUpdates(prev => ({
         ...prev,
@@ -977,6 +979,31 @@ export default function App() {
       }
     }
     return { success: res.ok, message: data.message || data.error || 'Gagal mengajukan libur', conflict: !!data.conflict };
+  };
+
+  const handleCancelLeave = async (leaveId: string) => {
+    if (!currentUser) return { success: false, message: 'Tidak diijinkan' };
+
+    const res = await fetch('/api/leaves/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id, leaveId })
+    });
+    const data = await res.json();
+    fetchLeaveRequests();
+
+    if (res.ok) {
+      // Refresh current user info
+      const usersRes = await fetch('/api/users');
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        const updatedMe = users.find((u: any) => u.id === currentUser.id);
+        if (updatedMe) {
+          setCurrentUser(updatedMe);
+        }
+      }
+    }
+    return { success: res.ok, message: data.message || data.error || 'Gagal membatalkan libur' };
   };
 
   // --------------------------------------------------------------------------
@@ -2206,6 +2233,49 @@ const monthlyKPIData = React.useMemo(() => {
             </div>
 
 
+            <div className="border-t border-slate-800 my-2"></div>
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
+              Akses Perangkat
+            </div>
+
+            {/* Sidebar Toggle Permissions */}
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-2 bg-slate-800/30 rounded-lg border border-slate-700/50 space-y-3`}>
+              <div className="flex justify-between items-center text-[10px]">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>GPS / Lokasi</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={requestGPSPermission}
+                  className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    permissionStates.gps === 'granted' ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    permissionStates.gps === 'granted' ? 'translate-x-3' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+
+              <div className="flex justify-between items-center text-[10px]">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <Camera className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Kamera</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={requestCameraPermission}
+                  className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    permissionStates.camera === 'granted' ? 'bg-blue-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    permissionStates.camera === 'granted' ? 'translate-x-3' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+            </div>
             {/* Quick user details inside sidebar */}
             <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} mt-auto bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg text-xs font-mono`}>
               <span className="text-[8px] text-slate-500 font-bold block mb-0.5">BOUND DEVICE ID:</span>
@@ -2223,6 +2293,22 @@ const monthlyKPIData = React.useMemo(() => {
                ========================================================================= */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fade-in">
+
+                {/* Clock on Dashboard */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4 text-slate-800">
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
+                    <Clock className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block font-mono">Waktu Sistem Server</span>
+                    <p className="font-display font-bold text-2xl text-slate-900 mt-0.5 leading-tight">
+                      {serverTime.toTimeString().split(' ')[0]}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {serverTime.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
 
                                 {/* Geofence / Check-In Live Module */}
                 <div className="flex flex-col gap-6">
@@ -2855,6 +2941,7 @@ const monthlyKPIData = React.useMemo(() => {
                   currentUser={currentUser}
                   leaveRequests={leaveRequests}
                   onApplyLeave={handleApplyLeave}
+                  onCancelLeave={handleCancelLeave}
                 />
               </div>
             )}

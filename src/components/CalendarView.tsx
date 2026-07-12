@@ -18,7 +18,7 @@ const DIVISION_COLORS: Record<string, { bg: string; text: string; border: string
 
 const DEFAULT_COLOR = { bg: 'bg-slate-100 text-slate-800 border-slate-200', text: 'text-slate-700', border: 'border-slate-500' };
 
-export default function CalendarView({ currentUser, leaveRequests, onApplyLeave }: CalendarViewProps) {
+export default function CalendarView({ currentUser, leaveRequests, onApplyLeave, onCancelLeave }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
@@ -73,7 +73,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
     if (dateStr < todayStr) {
       setStatusMessage({
         type: 'error',
-        text: 'Anda tidak dapat memilih tanggal yang sudah terlewat untuk pengajuan cuti/libur.'
+        text: 'Anda tidak dapat memilih tanggal yang sudah terlewat untuk pengajuan libur/libur.'
       });
       return;
     }
@@ -356,7 +356,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                   <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-800 text-[11px] flex gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 animate-bounce" />
                     <div>
-                      <p className="font-bold text-amber-900 text-xs">Peringatan Konflik Cuti</p>
+                      <p className="font-bold text-amber-900 text-xs">Peringatan Konflik Libur</p>
                       <p className="text-[10px] text-slate-600 leading-relaxed mt-0.5">
                         Ada rekan se-divisi ({currentUser.division}) yang telah disetujui libur pada tanggal berikut:
                       </p>
@@ -399,7 +399,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
               <div className="text-center py-8 text-slate-400">
                 <Info className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                 <p className="text-xs">
-                  Silakan pilih satu atau beberapa tanggal yang tersedia pada kalender untuk mengajukan cuti atau jatah libur.
+                  Silakan pilih satu atau beberapa tanggal yang tersedia pada kalender untuk mengajukan libur atau jatah libur.
                 </p>
               </div>
             )}
@@ -438,15 +438,32 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
               <div className="space-y-3 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
                 {myLeaves.slice().reverse().map((l) => (
                   <div key={l.id} className="bg-white p-3 rounded-lg border border-slate-200/60 shadow-xs text-[11px]">
-                    <div className="flex items-center justify-between font-bold mb-1">
+                  <div className="flex items-center justify-between font-bold mb-1">
                       <span className="font-mono text-slate-600">{l.date}</span>
-                      <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider ${
-                        l.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                        l.status === 'rejected' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 
-                        'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}>
-                        {l.status === 'approved' ? 'Disetujui' : l.status === 'rejected' ? 'Ditolak' : 'Tertunda'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider ${
+                          l.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                          l.status === 'rejected' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                          'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {l.status === 'approved' ? 'Disetujui' : l.status === 'rejected' ? 'Ditolak' : 'Tertunda'}
+                        </span>
+                        {onCancelLeave && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                               if(window.confirm('Batalkan pengajuan libur ini?')) {
+                                  const res = await onCancelLeave(l.id);
+                                  if(!res.success) alert(res.message);
+                               }
+                            }}
+                            className="text-rose-500 hover:text-rose-700 font-bold px-1"
+                            title="Batalkan pengajuan (Maks H-1)"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-slate-500 italic mt-1">" {l.notes || 'Tanpa keterangan'} "</p>
                     {l.adminRemarks && (
@@ -459,7 +476,7 @@ export default function CalendarView({ currentUser, leaveRequests, onApplyLeave 
                 ))}
               </div>
             ) : (
-              <p className="text-slate-400 text-xs text-center py-4 italic">Belum ada riwayat pengajuan cuti.</p>
+              <p className="text-slate-400 text-xs text-center py-4 italic">Belum ada riwayat pengajuan libur.</p>
             )}
           </div>
         </div>
