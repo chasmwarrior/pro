@@ -56,6 +56,7 @@ export default function App() {
   const [radarFilterStatus, setRadarFilterStatus] = useState<string>('all');
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Custom Dialog Overlay State
   const [customDialog, setCustomDialog] = useState<{
@@ -1825,31 +1826,81 @@ const monthlyKPIData = React.useMemo(() => {
          MAIN LAYOUT (LOGGED IN USER CONSOLE)
          -------------------------------------------------------------------------- */}
       {currentUser && (
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden h-[calc(100vh)]">
+        <div className="flex-1 flex flex-col h-[calc(100vh)] overflow-hidden relative">
+
+          {/* MOBILE TOP HEADER */}
+          <header className="md:hidden flex items-center justify-between bg-slate-900 border-b border-slate-800 p-3 z-40 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner shrink-0">
+                {config?.branding.logoUrl ? (
+                  <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
+                ) : (
+                  <Landmark className="w-full h-full text-blue-500" />
+                )}
+              </div>
+              <div>
+                <h1 className="font-display font-bold text-sm text-white tracking-tight leading-tight">
+                  {config?.branding.name || 'AbsenPro'}
+                </h1>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800 focus:outline-none"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          </header>
+
+          <div className="flex-1 flex overflow-hidden relative">
+
+          {/* MOBILE SIDEBAR BACKDROP */}
+          {isMobileSidebarOpen && (
+            <div
+              className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            />
+          )}
+
           {/* --------------------------------------------------------------------------
              LEFT NAVIGATION SIDEBAR
              -------------------------------------------------------------------------- */}
           <nav
-            className={`${
-              isSidebarCollapsed ? 'w-full md:w-16' : 'w-full md:max-w-[280px] md:w-64'
-            } bg-slate-900 border-r border-slate-800 flex flex-col p-3 transition-all duration-300 ease-in-out shrink-0 text-slate-300 z-50 overflow-y-auto`}
+            className={`
+              fixed md:static inset-y-0 left-0 transform ${
+                isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+              } md:translate-x-0 transition-transform duration-300 ease-in-out
+              ${isSidebarCollapsed ? 'md:w-16' : 'md:w-64'}
+              w-[280px] bg-slate-900 border-r border-slate-800 flex flex-col p-3 shrink-0 text-slate-300 z-50 overflow-y-auto shadow-2xl md:shadow-none
+            `}
           >
             {/* Header info inside sidebar */}
             <div className="flex flex-col gap-4 mb-6">
                <div className="flex items-center gap-3">
-                 <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner shrink-0">
+                 <div className={`${isSidebarCollapsed ? 'mx-auto' : ''} w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner shrink-0 hidden md:flex`}>
                    {config?.branding.logoUrl ? (
                      <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
                    ) : (
                      <Landmark className="w-full h-full text-blue-500" />
                    )}
                  </div>
-                 <div className={`${isSidebarCollapsed ? 'hidden md:hidden' : 'block'} flex-1 overflow-hidden`}>
+                 <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden md:block'} flex-1 overflow-hidden`}>
                    <h1 className="font-display font-bold text-sm text-white tracking-tight flex items-center gap-1 truncate">
                      <span>{config?.branding.name || 'AbsenPro'}</span>
                    </h1>
                    <p className="text-[9px] text-slate-400 font-mono leading-none truncate">Geofence & Liveness</p>
                  </div>
+
+                 {/* Mobile Close Button */}
+                 <button
+                    type="button"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition md:hidden shrink-0 ml-auto"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
                  <button
                     type="button"
                     onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -1859,7 +1910,7 @@ const monthlyKPIData = React.useMemo(() => {
                   </button>
                </div>
 
-               <div className={`${isSidebarCollapsed ? 'hidden md:hidden' : 'flex'} bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/50 items-center gap-3`}>
+               <div className={`${isSidebarCollapsed ? 'hidden' : 'flex'} bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/50 items-center gap-3`}>
                   <img
                     src={currentUser.photoUrl}
                     alt={currentUser.username}
@@ -1884,7 +1935,7 @@ const monthlyKPIData = React.useMemo(() => {
             </div>
 
             {/* Time widget inside sidebar */}
-            <div className={`${isSidebarCollapsed ? 'hidden md:hidden' : 'flex'} mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-3 items-center gap-3`}>
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'flex'} mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-3 items-center gap-3`}>
                 <Clock className="w-5 h-5 text-blue-400 animate-pulse shrink-0" />
                 <div>
                   <span className="font-mono font-bold text-sm text-blue-400 block leading-tight">
@@ -1899,7 +1950,7 @@ const monthlyKPIData = React.useMemo(() => {
             <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar">
 <button
               type="button"
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => { setActiveTab('dashboard'); setIsMobileSidebarOpen(false); }}
               title="Dashboard Kerja"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'dashboard'
@@ -1913,7 +1964,7 @@ const monthlyKPIData = React.useMemo(() => {
 
             <button
               type="button"
-              onClick={() => setActiveTab('history')}
+              onClick={() => { setActiveTab('history'); setIsMobileSidebarOpen(false); }}
               title="Riwayat"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'history'
@@ -1927,7 +1978,7 @@ const monthlyKPIData = React.useMemo(() => {
 
             <button
               type="button"
-              onClick={() => setActiveTab('stats')}
+              onClick={() => { setActiveTab('stats'); setIsMobileSidebarOpen(false); }}
               title="Statistik"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'stats'
@@ -1941,7 +1992,7 @@ const monthlyKPIData = React.useMemo(() => {
 
             <button
               type="button"
-              onClick={() => setActiveTab('calendar')}
+              onClick={() => { setActiveTab('calendar'); setIsMobileSidebarOpen(false); }}
               title="Pengajuan Libur"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'calendar'
@@ -1955,7 +2006,7 @@ const monthlyKPIData = React.useMemo(() => {
 
             <button
               type="button"
-              onClick={() => setActiveTab('inbox')}
+              onClick={() => { setActiveTab('inbox'); setIsMobileSidebarOpen(false); }}
               title="Inbox Pengumuman"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
                 activeTab === 'inbox'
@@ -1976,7 +2027,7 @@ const monthlyKPIData = React.useMemo(() => {
 
             <button
               type="button"
-              onClick={() => setActiveTab('profile')}
+              onClick={() => { setActiveTab('profile'); setIsMobileSidebarOpen(false); }}
               title="Profil & Password"
               className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'profile'
@@ -2002,6 +2053,7 @@ const monthlyKPIData = React.useMemo(() => {
                   onClick={() => {
                     setActiveTab('admin');
                     setAdminSubTab('radar');
+                    setIsMobileSidebarOpen(false);
                   }}
                   title="Radar Pekerja"
                   className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
@@ -2018,11 +2070,30 @@ const monthlyKPIData = React.useMemo(() => {
                   type="button"
                   onClick={() => {
                     setActiveTab('admin');
-                    setAdminSubTab('presence');
+                    setAdminSubTab('approvals');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Persetujuan"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'approvals'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Persetujuan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('export');
+                    setIsMobileSidebarOpen(false);
                   }}
                   title="Laporan Absensi"
                   className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
-                    activeTab === 'admin' && adminSubTab === 'presence'
+                    activeTab === 'admin' && adminSubTab === 'export'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
                   }`}
@@ -2035,17 +2106,18 @@ const monthlyKPIData = React.useMemo(() => {
                   type="button"
                   onClick={() => {
                     setActiveTab('admin');
-                    setAdminSubTab('users');
+                    setAdminSubTab('locations');
+                    setIsMobileSidebarOpen(false);
                   }}
-                  title="Kelola Pegawai"
+                  title="Kelola Geofence"
                   className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
-                    activeTab === 'admin' && adminSubTab === 'users'
+                    activeTab === 'admin' && adminSubTab === 'locations'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <Users className="w-4 h-4 shrink-0" />
-                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Kelola Pegawai</span>
+                  <Building2 className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Kelola Geofence</span>
                 </button>
 
                 <button
@@ -2053,6 +2125,7 @@ const monthlyKPIData = React.useMemo(() => {
                   onClick={() => {
                     setActiveTab('admin');
                     setAdminSubTab('announcements');
+                    setIsMobileSidebarOpen(false);
                   }}
                   title="Pengumuman"
                   className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
@@ -2064,6 +2137,60 @@ const monthlyKPIData = React.useMemo(() => {
                   <Megaphone className="w-4 h-4 shrink-0" />
                   <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Pengumuman</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('unbind');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Unbind Perangkat"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'unbind'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Unlock className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Unbind Perangkat</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('settings');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Branding & Denda"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'settings'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Settings className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Branding & Denda</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('reset');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Reset Pabrik"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer text-rose-500 hover:bg-rose-500/20 hover:text-rose-400 ${
+                    activeTab === 'admin' && adminSubTab === 'reset'
+                      ? 'bg-rose-600 text-white shadow-md hover:text-white'
+                      : ''
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Reset Pabrik</span>
+                </button>
               </>
             )}
 
@@ -2072,7 +2199,7 @@ const monthlyKPIData = React.useMemo(() => {
 
 
             {/* Quick user details inside sidebar */}
-            <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} mt-auto bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg text-xs font-mono`}>
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} mt-auto bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg text-xs font-mono`}>
               <span className="text-[8px] text-slate-500 font-bold block mb-0.5">BOUND DEVICE ID:</span>
               <p className="text-slate-400 truncate text-[10px]" title={deviceFingerprint}>{deviceFingerprint}</p>
             </div>
@@ -2081,7 +2208,7 @@ const monthlyKPIData = React.useMemo(() => {
           {/* --------------------------------------------------------------------------
              MAIN SCROLLABLE CONTENT CANVAS
              -------------------------------------------------------------------------- */}
-          <main className="flex-1 p-4 overflow-y-auto max-w-full">
+          <main className="flex-1 p-4 overflow-y-auto max-w-full relative w-full">
             
             {/* =========================================================================
                TAB: WORKER DASHBOARD
@@ -3934,6 +4061,8 @@ const monthlyKPIData = React.useMemo(() => {
               </div>
             )}
           </main>
+
+          </div> {/* End inner flex wrap */}
         </div>
       )}
 
