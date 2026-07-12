@@ -9,7 +9,8 @@ import {
   Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
-  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp
+  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp,
+  Menu, ClipboardList, Megaphone, Map
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapView from './components/MapView';
@@ -1460,9 +1461,10 @@ export default function App() {
           w.currentLat = livePos.lat;
           w.currentLng = livePos.lng;
         } else {
-          // Fallback to check-in location ONLY if we have no socket ping yet, but wipe currentLat/Lng otherwise.
-          w.currentLat = record.checkInLat;
-          w.currentLng = record.checkInLng;
+          // Explicitly clear location if there's no live socket data to ensure accurate tracking
+          // The user explicitly requested to NOT use data from check-in.
+          w.currentLat = undefined;
+          w.currentLng = undefined;
         }
 
         if (w.currentLat && w.currentLng) {
@@ -1593,84 +1595,7 @@ const monthlyKPIData = React.useMemo(() => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
       
-      {/* --------------------------------------------------------------------------
-         HEADER BAR
-         -------------------------------------------------------------------------- */}
-      <header className="border-b border-slate-200 bg-white px-4 py-1.5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 sticky top-0 z-40 shadow-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner">
-            {config?.branding.logoUrl ? (
-              <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
-            ) : (
-              <Landmark className="w-full h-full text-blue-600" />
-            )}
-          </div>
-          <div>
-            <h1 className="font-display font-bold text-sm text-slate-900 tracking-tight flex items-center gap-1">
-              <span>{config?.branding.name || 'AbsenPro Nusantara'}</span>
-              <span className="text-[8px] bg-blue-50 text-blue-700 border border-blue-100 font-mono py-0.2 px-1 rounded-full font-bold">PROFESIONAL</span>
-            </h1>
-            <p className="text-[10px] text-slate-400 font-mono leading-none">Sistem Kehadiran Geofence & Liveness Terenkripsi</p>
-          </div>
-        </div>
 
-        {currentUser && (
-          <div className="flex flex-wrap items-center gap-3 text-slate-800">
-            {/* Server synchronized real-time ticking clock */}
-            <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-0.5 flex items-center gap-2 shadow-inner">
-              <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-              <div className="text-right">
-                <span className="font-mono font-bold text-xs text-blue-600 block leading-tight">
-                  {serverTime.toTimeString().split(' ')[0]}
-                </span>
-                <span className="text-[8px] text-slate-400 block leading-none">
-                  {serverTime.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} (WIB)
-                </span>
-              </div>
-            </div>
-
-            {/* Theme Selector Widget */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 shrink-0 shadow-inner">
-              <Palette className="w-3.5 h-3.5 text-blue-600 ml-1 shrink-0" />
-              <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as any)}
-                className="bg-transparent border-none text-[10px] font-bold text-slate-700 outline-none pr-1 cursor-pointer"
-                title="Pilih Tema Tampilan"
-              >
-                <option value="blue">🔵 Biru</option>
-                <option value="emerald">🟢 Hijau</option>
-                <option value="rose">🔴 Mawar</option>
-                <option value="dark">⚫ Slate</option>
-              </select>
-            </div>
-
-            {/* Profile Dropdown Badge */}
-            <div className="flex items-center gap-2 bg-slate-50 p-1 pr-3 border border-slate-200 rounded-full">
-              <img
-                src={currentUser.photoUrl}
-                alt={currentUser.username}
-                className="w-7 h-7 rounded-full object-cover border border-slate-200 bg-white"
-                referrerPolicy="no-referrer"
-              />
-              <div className="text-left">
-                <p className="text-xs font-bold text-slate-800 capitalize leading-tight">{currentUser.username}</p>
-                <span className="text-[8px] font-mono text-blue-600 uppercase tracking-wide px-1 py-0.2 rounded bg-blue-50 border border-blue-100/50">
-                  {currentUser.role}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="ml-2 p-1 hover:bg-rose-50 rounded-full text-slate-400 hover:text-rose-500 transition cursor-pointer"
-                title="Keluar dari Akun"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </header>
 
       {/* --------------------------------------------------------------------------
          ANNOUNCEMENT BAR FOR WORKERS
@@ -1895,35 +1820,84 @@ const monthlyKPIData = React.useMemo(() => {
         </main>
       )}
 
+
       {/* --------------------------------------------------------------------------
          MAIN LAYOUT (LOGGED IN USER CONSOLE)
          -------------------------------------------------------------------------- */}
       {currentUser && (
-        <div className="flex-1 flex flex-col md:flex-row">
-          
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden h-[calc(100vh)]">
           {/* --------------------------------------------------------------------------
-             NAVIGATION SIDEBAR
+             LEFT NAVIGATION SIDEBAR
              -------------------------------------------------------------------------- */}
-          <nav className={`w-full ${isSidebarCollapsed ? 'md:w-16 md:p-1.5' : 'md:w-16 lg:w-56 md:p-1.5 lg:p-3'} border-b md:border-b-0 md:border-r border-slate-800 bg-slate-900 flex flex-row md:flex-col gap-1.5 shrink-0 md:h-[calc(100vh-57px)] sticky top-[57px] z-30 overflow-x-auto md:overflow-x-visible custom-scrollbar transition-all duration-300 ease-in-out`}>
-            
-            {/* Sidebar Collapse Toggle Button */}
-            <div className="hidden md:flex justify-end p-1">
-              <button
-                type="button"
-                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/80 transition cursor-pointer"
-                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-              >
-                {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-              </button>
+          <nav
+            className={`${
+              isSidebarCollapsed ? 'w-full md:w-16' : 'w-full md:max-w-[280px] md:w-64'
+            } bg-slate-900 border-r border-slate-800 flex flex-col p-3 transition-all duration-300 ease-in-out shrink-0 text-slate-300 z-50 overflow-y-auto`}
+          >
+            {/* Header info inside sidebar */}
+            <div className="flex flex-col gap-4 mb-6">
+               <div className="flex items-center gap-3">
+                 <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner shrink-0">
+                   {config?.branding.logoUrl ? (
+                     <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
+                   ) : (
+                     <Landmark className="w-full h-full text-blue-500" />
+                   )}
+                 </div>
+                 <div className={`${isSidebarCollapsed ? 'hidden md:hidden' : 'block'} flex-1 overflow-hidden`}>
+                   <h1 className="font-display font-bold text-sm text-white tracking-tight flex items-center gap-1 truncate">
+                     <span>{config?.branding.name || 'AbsenPro'}</span>
+                   </h1>
+                   <p className="text-[9px] text-slate-400 font-mono leading-none truncate">Geofence & Liveness</p>
+                 </div>
+                 <button
+                    type="button"
+                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition hidden md:block shrink-0 ml-auto"
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+               </div>
+
+               <div className={`${isSidebarCollapsed ? 'hidden md:hidden' : 'flex'} bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/50 items-center gap-3`}>
+                  <img
+                    src={currentUser.photoUrl}
+                    alt={currentUser.username}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-slate-600 bg-slate-800 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-white capitalize leading-tight truncate">{currentUser.username}</p>
+                    <span className="text-[9px] font-mono text-blue-400 uppercase tracking-wide inline-block mt-1">
+                      {currentUser.role}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="p-2 hover:bg-rose-500/20 rounded-full text-slate-400 hover:text-rose-400 transition cursor-pointer shrink-0"
+                    title="Keluar dari Akun"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+               </div>
             </div>
 
-            {/* Sidebar headers */}
-            <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
-              Panel Navigasi
+            {/* Time widget inside sidebar */}
+            <div className={`${isSidebarCollapsed ? 'hidden md:hidden' : 'flex'} mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-3 items-center gap-3`}>
+                <Clock className="w-5 h-5 text-blue-400 animate-pulse shrink-0" />
+                <div>
+                  <span className="font-mono font-bold text-sm text-blue-400 block leading-tight">
+                    {serverTime.toTimeString().split(' ')[0]}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block leading-none mt-1">
+                    {serverTime.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                </div>
             </div>
 
-            <button
+            <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar">
+<button
               type="button"
               onClick={() => setActiveTab('dashboard')}
               title="Dashboard Kerja"
@@ -2014,11 +1988,12 @@ const monthlyKPIData = React.useMemo(() => {
               <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Profil & Password</span>
             </button>
 
+
             {/* Privileged Admin Menu options */}
             {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
               <>
-                <div className="hidden md:block border-t border-slate-800 my-2"></div>
-                <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
+                <div className="border-t border-slate-800 my-2"></div>
+                <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
                   Sistem Admin
                 </div>
 
@@ -2028,18 +2003,73 @@ const monthlyKPIData = React.useMemo(() => {
                     setActiveTab('admin');
                     setAdminSubTab('radar');
                   }}
-                  title="Konsol Admin"
-                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
-                    activeTab === 'admin'
+                  title="Radar Pekerja"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'radar'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <Settings className="w-4 h-4 shrink-0" />
-                  <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Konsol Admin</span>
+                  <Map className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Radar Pekerja</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('presence');
+                  }}
+                  title="Laporan Absensi"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'presence'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <ClipboardList className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Laporan Absensi</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('users');
+                  }}
+                  title="Kelola Pegawai"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'users'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Users className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Kelola Pegawai</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('announcements');
+                  }}
+                  title="Pengumuman"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'announcements'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Megaphone className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Pengumuman</span>
                 </button>
               </>
             )}
+
+
+            </div>
+
 
             {/* Quick user details inside sidebar */}
             <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} mt-auto bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg text-xs font-mono`}>
@@ -2875,120 +2905,8 @@ const monthlyKPIData = React.useMemo(() => {
                ========================================================================= */}
             {activeTab === 'admin' && (
               <div className="space-y-6 animate-fade-in">
-                <div className="bg-gradient-to-r from-blue-500/10 via-slate-50 to-blue-500/5 border border-blue-100 rounded-xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 text-slate-800">
-                  <div>
-                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest block font-mono">Administrative Control Panel</span>
-                    <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Konsol Manajemen Platform</h2>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Otorisasi persetujuan, pemantauan radar pekerja realtime, konfigurasi geofence, dan ekspor pelaporan resmi.
-                    </p>
-                  </div>
-                  <span className="bg-blue-100 text-blue-700 border border-blue-200 font-mono text-[11px] font-bold py-1 px-3.5 rounded-full uppercase">
-                    ROLE: {currentUser.role}
-                  </span>
-                </div>
 
-                {/* Sub-navigation Controls tabs */}
-                <div className="flex flex-wrap border border-slate-200 gap-1.5 p-1 bg-slate-100 rounded-xl">
-                  
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('radar')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'radar' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Compass className="w-4 h-4" />
-                    <span>Radar GPS Realtime</span>
-                  </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('approvals')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 relative cursor-pointer ${
-                      adminSubTab === 'approvals' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <ShieldAlert className="w-4 h-4" />
-                    <span>Persetujuan</span>
-                    {(pendingWorkers.length > 0 || attendanceRecords.filter(r => r.status === 'pending').length > 0) && (
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 border border-white rounded-full"></span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('locations')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'locations' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Building2 className="w-4 h-4" />
-                    <span>Kelola Geofence Kantor</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('unbind')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'unbind' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Unlock className="w-4 h-4" />
-                    <span>Unbind Perangkat</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('announcements')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'announcements' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Bell className="w-4 h-4" />
-                    <span>Pengumuman</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('settings')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'settings' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Settings className="w-4 h-4" />
-                    <span>Branding & Denda</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('export')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'export' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>Ekspor Laporan</span>
-                  </button>
-
-                  {/* Factory Reset only available for true Admins */}
-                  {currentUser.role === 'admin' && (
-                    <button
-                      type="button"
-                      onClick={() => setAdminSubTab('reset')}
-                      className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                        adminSubTab === 'reset' ? 'bg-rose-50 text-rose-700 border border-rose-200 shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Reset Pabrik</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* ----------------------------------------------------------------------
-                   SUBTAB: RADAR REALTIME MAP TRACKER
-                   ---------------------------------------------------------------------- */}
                 {adminSubTab === 'radar' && (
                   <div className="space-y-6 animate-fade-in">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
