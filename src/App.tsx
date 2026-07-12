@@ -4025,160 +4025,73 @@ const monthlyKPIData = React.useMemo(() => {
                         </div>
                       </div>
 
-                      {/* Section: Fines & Bonuses */}
-                      <div className="space-y-4">
-                        <h5 className="text-xs font-bold text-blue-600 uppercase tracking-widest font-mono flex items-center gap-1.5">
-                          <Landmark className="w-4 h-4" />
-                          <span>Parameter Keuangan Absensi</span>
-                        </h5>
+                                              {/* Section: Fines & Bonuses (Removed legacy inputs) */}
+                        <div className="space-y-4">
+                          <h5 className="text-xs font-bold text-blue-600 uppercase tracking-widest font-mono flex items-center gap-1.5">
+                            <Landmark className="w-4 h-4" />
+                            <span>Parameter Keuangan Absensi (Aturan Dinamis)</span>
+                          </h5>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="space-y-1.5">
-                            <label htmlFor="set-fines" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Denda Telat (IDR)</label>
-                            <input
-                              id="set-fines"
-                              required
-                              type="number"
-                              value={settingsDenda}
-                              onChange={(e) => setSettingsDenda(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label htmlFor="set-bonus-tepat" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bonus Tepat Waktu (IDR)</label>
-                            <input
-                              id="set-bonus-tepat"
-                              required
-                              type="number"
-                              value={settingsBonusTepat}
-                              onChange={(e) => setSettingsBonusTepat(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label htmlFor="set-bonus-disiplin" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disiplin Bulanan (IDR)</label>
-                            <input
-                              id="set-bonus-disiplin"
-                              required
-                              type="number"
-                              value={settingsBonusDisiplin}
-                              onChange={(e) => setSettingsBonusDisiplin(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                            />
-                          </div>
-                        </div>
+                          <p className="text-[11px] text-slate-500">Gunakan Aturan Dinamis di bawah ini untuk mengatur denda, bonus, dan lembur secara fleksibel berdasarkan jam.</p>
 
+                          {/* Dynamic Rules Engine UI */}
+                          <div className="pt-4 border-t border-slate-100 mt-4">
+                            <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-3">Aturan Jam & Insentif Kustom</h6>
+                            <div className="space-y-3">
+                              {config?.rules?.map((rule, idx) => (
+                                <div key={rule.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-lg border border-slate-200 text-[10px]">
+                                  <input type="text" value={rule.name} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].name = e.target.value;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="flex-1 bg-white border border-slate-200 px-2 py-1 rounded" placeholder="Nama Aturan" />
 
-                        {/* Dynamic Rules Engine UI */}
-                        <div className="pt-4 border-t border-slate-100 mt-4">
-                          <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-3">Aturan Jam & Insentif Kustom</h6>
-                          <div className="space-y-3">
-                            {config?.rules?.map((rule, idx) => (
-                              <div key={rule.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-lg border border-slate-200 text-[10px]">
-                                <input type="text" value={rule.name} onChange={e => {
-                                  const newRules = [...(config.rules || [])];
-                                  newRules[idx].name = e.target.value;
-                                  setConfig({...config, rules: newRules});
-                                }} className="flex-1 bg-white border border-slate-200 px-2 py-1 rounded" placeholder="Nama Aturan" />
+                                  <input type="time" value={rule.startTime} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].startTime = e.target.value;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
 
-                                <input type="time" value={rule.startTime} onChange={e => {
-                                  const newRules = [...(config.rules || [])];
-                                  newRules[idx].startTime = e.target.value;
-                                  setConfig({...config, rules: newRules});
-                                }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
+                                  <span className="text-slate-400">-</span>
 
-                                <span className="text-slate-400">-</span>
+                                  <input type="time" value={rule.endTime} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].endTime = e.target.value;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
 
-                                <input type="time" value={rule.endTime} onChange={e => {
-                                  const newRules = [...(config.rules || [])];
-                                  newRules[idx].endTime = e.target.value;
-                                  setConfig({...config, rules: newRules});
-                                }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
+                                  <select value={rule.type} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].type = e.target.value as any;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded">
+                                    <option value="denda">Denda (-)</option>
+                                    <option value="bonus">Bonus (+)</option>
+                                    <option value="lembur">Lembur (+)</option>
+                                  </select>
 
-                                <select value={rule.type} onChange={e => {
-                                  const newRules = [...(config.rules || [])];
-                                  newRules[idx].type = e.target.value as any;
-                                  setConfig({...config, rules: newRules});
-                                }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded">
-                                  <option value="denda">Denda</option>
-                                  <option value="bonus">Bonus</option>
-                                  <option value="lembur">Lembur</option>
-                                </select>
+                                  <input type="number" value={rule.amount} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].amount = Number(e.target.value);
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded font-mono font-bold" placeholder="Rp" />
 
-                                <input type="number" value={rule.amount} onChange={e => {
-                                  const newRules = [...(config.rules || [])];
-                                  newRules[idx].amount = Number(e.target.value);
-                                  setConfig({...config, rules: newRules});
-                                }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded font-mono font-bold" placeholder="Rp" />
-
-                                <button type="button" onClick={() => {
-                                  const newRules = [...(config.rules || [])];
-                                  newRules.splice(idx, 1);
-                                  setConfig({...config, rules: newRules});
-                                }} className="text-rose-500 hover:bg-rose-100 p-1.5 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
-                              </div>
-                            ))}
-                            <button type="button" onClick={() => {
-                              const newRule = { id: 'r'+Date.now(), name: 'Aturan Baru', startTime: '00:00', endTime: '23:59', type: 'denda' as any, amount: 0 };
-                              setConfig({...config!, rules: [...(config?.rules || []), newRule]});
-                            }} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-1.5 px-3 rounded flex items-center gap-1">
-                              <Plus className="w-3 h-3" /> Tambah Aturan Kustom
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Section: Dynamic Overtime Settings */}
-                        <div className="pt-2">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Parameter Lemburan Berjenjang (IDR / Jam)</label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label htmlFor="set-lembur-h1" className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Lemburan Jam Ke-1 (IDR/jam)</label>
-                              <input
-                                id="set-lembur-h1"
-                                required
-                                type="number"
-                                value={settingsLemburHour1}
-                                onChange={(e) => setSettingsLemburHour1(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label htmlFor="set-lembur-h2" className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Lemburan Jam Ke-2 dst (IDR/jam)</label>
-                              <input
-                                id="set-lembur-h2"
-                                required
-                                type="number"
-                                value={settingsLemburHour2Onwards}
-                                onChange={(e) => setSettingsLemburHour2Onwards(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                              />
+                                  <button type="button" onClick={() => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules.splice(idx, 1);
+                                    setConfig({...config, rules: newRules});
+                                  }} className="text-rose-500 hover:bg-rose-100 p-1.5 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </div>
+                              ))}
+                              <button type="button" onClick={() => {
+                                const newRule = { id: 'r'+Date.now(), name: 'Aturan Baru', startTime: '00:00', endTime: '23:59', type: 'denda' as any, amount: 0 };
+                                setConfig({...config!, rules: [...(config?.rules || []), newRule]});
+                              }} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-1.5 px-3 rounded flex items-center gap-1 cursor-pointer">
+                                <Plus className="w-3 h-3" /> Tambah Aturan Kustom
+                              </button>
                             </div>
                           </div>
                         </div>
-
-                        {/* Dynamic Late Fine Tiers Documentation for SOP 2026 */}
-                        <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-lg space-y-2">
-                          <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Ketentuan Denda & Jatah Berjenjang (SOP 2026)</h6>
-                          <div className="text-[11px] text-slate-500 space-y-1 font-mono leading-relaxed">
-                            <div className="flex justify-between border-b border-slate-100 pb-1">
-                              <span>⏱️ Telat 1 - 10 menit (10:01 - 10:10 WIB):</span>
-                              <span className="font-semibold text-emerald-600">Dispensasi Rp 0</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 pb-1">
-                              <span>⏱️ Telat 11 - 30 menit (10:11 - 10:30 WIB):</span>
-                              <span className="font-semibold text-amber-600">Denda Rp 5.000 / Kejadian</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 pb-1">
-                              <span>⏱️ Telat 31 - 60 menit (10:31 - 11:00 WIB):</span>
-                              <span className="font-semibold text-amber-700">Denda Rp 50.000 atau Potong 0.5 Libur</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>⏱️ Telat &gt; 60 menit (&gt; 11:00 WIB):</span>
-                              <span className="font-semibold text-rose-600">Denda Rp 100.000 atau Potong 1 Libur</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
 
                       <button
                         type="submit"
