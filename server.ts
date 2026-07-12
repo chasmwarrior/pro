@@ -277,7 +277,11 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 // Helper to parse HH:MM to minutes since midnight
 function timeStrToMinutes(timeStr: string): number {
-  const [h, m, s = 0] = timeStr.split(':').map(Number);
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map(Number);
+  const h = parts[0] || 0;
+  const m = parts[1] || 0;
+  const s = parts[2] || 0;
   return h * 60 + m + s / 60;
 }
 
@@ -287,16 +291,17 @@ function calculateDynamicIncentives(timeStr: string, rules: any[]): { fineAmount
   let fineAmount = 0;
   let bonusAmount = 0;
 
-  if (rules && rules.length > 0) {
+  if (rules && Array.isArray(rules) && rules.length > 0) {
     for (const rule of rules) {
+      if (!rule || !rule.startTime || !rule.endTime) continue;
       const startMin = timeStrToMinutes(rule.startTime);
       const endMin = timeStrToMinutes(rule.endTime);
 
       if (checkInMinutes >= startMin && checkInMinutes <= endMin) {
         if (rule.type === 'denda') {
-          fineAmount = Math.max(fineAmount, rule.amount); // Take highest applicable fine
+          fineAmount = Math.max(fineAmount, Number(rule.amount) || 0); // Take highest applicable fine
         } else if (rule.type === 'bonus') {
-          bonusAmount += rule.amount; // Accumulate bonuses
+          bonusAmount += (Number(rule.amount) || 0); // Accumulate bonuses
         }
       }
     }
