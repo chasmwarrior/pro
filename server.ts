@@ -743,8 +743,8 @@ app.post('/api/attendance/manual-arrive', (req, res) => {
   }
 
   const record = db.attendanceRecords[recordIdx];
-  if (!record.isManualCheckIn) {
-    return res.status(400).json({ error: 'Hari ini Anda tidak melakukan Check-In Manual.' });
+  if (!record.isManualCheckIn && !record.isOutsideGeofence) {
+    return res.status(400).json({ error: 'Hari ini Anda tidak melakukan Check-In Manual atau Check-In di luar geofence.' });
   }
 
   if (record.arrivalTimeAtWarehouse) {
