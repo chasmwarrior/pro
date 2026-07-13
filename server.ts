@@ -685,8 +685,20 @@ app.post('/api/attendance/check-in', (req, res) => {
 });
 
 app.post('/api/attendance/check-out', (req, res) => {
-  const { userId, lat, lng } = req.body;
+  const { userId, lat, lng, device } = req.body;
   const db = readDB();
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+
+  // Device binding check for checkout
+  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+    return res.status(400).json({
+      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+    });
+  }
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
@@ -722,8 +734,6 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   let isEarlyOutViolation = false;
   let checkoutNote = '';
-
-  const user = db.users.find((u: any) => u.id === userId);
 
   if (isEarlyOut) {
     const currentMonthStr = dateStr.substring(0, 7);

@@ -50,8 +50,8 @@ export default function App() {
   // 1. App State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [radarLiveUpdates, setRadarLiveUpdates] = useState<Record<string, { lat: number, lng: number }>>({});
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox'>('dashboard');
-  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset'>('radar');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox' | 'history' | 'stats' | 'logs'>('dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs'>('radar');
   const [radarFilterDivision, setRadarFilterDivision] = useState<string>('all');
   const [radarFilterStatus, setRadarFilterStatus] = useState<string>('all');
 
@@ -229,6 +229,47 @@ export default function App() {
   const [isAutoRefreshRadar, setIsAutoRefreshRadar] = useState<boolean>(true);
   const [radarRefreshInterval, setRadarRefreshInterval] = useState<number>(30000);
   const [isAnnouncementDismissed, setIsAnnouncementDismissed] = useState<boolean>(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [isDebugMode, setIsDebugMode] = useState<boolean>(false);
+
+  // Ref-based log capture to prevent infinite loops
+  const logsRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (!isDebugMode) return;
+
+    // Clear old logs when activated
+    logsRef.current = [];
+    setDebugLogs([]);
+
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    const addLog = (level: string, ...args: any[]) => {
+      try {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        logsRef.current = [`[${time}] [${level}] ${msg}`, ...logsRef.current].slice(0, 50);
+        // We only trigger state updates on explicit user interaction or interval, not synchronously
+      } catch(e) {}
+    };
+
+    console.log = (...args) => { originalLog(...args); addLog('INFO', ...args); };
+    console.error = (...args) => { originalError(...args); addLog('ERROR', ...args); };
+    console.warn = (...args) => { originalWarn(...args); addLog('WARN', ...args); };
+
+    // Update the visual logs state once every 2 seconds to avoid render thrashing
+    const interval = setInterval(() => {
+        setDebugLogs([...logsRef.current]);
+    }, 2000);
+
+    return () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+      clearInterval(interval);
+    };
+  }, [isDebugMode]);
   const [theme, setTheme] = useState<'blue' | 'emerald' | 'dark' | 'rose'>(() => {
     return (localStorage.getItem('app-theme') as 'blue' | 'emerald' | 'dark' | 'rose') || 'blue';
   });
@@ -2209,7 +2250,7 @@ const monthlyKPIData = React.useMemo(() => {
                   <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Branding & Denda</span>
                 </button>
 
-                <button
+                                <button
                   type="button"
                   onClick={() => {
                     setActiveTab('admin');
@@ -2226,6 +2267,8 @@ const monthlyKPIData = React.useMemo(() => {
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Reset Pabrik</span>
                 </button>
+
+
               </>
             )}
 
@@ -2233,6 +2276,24 @@ const monthlyKPIData = React.useMemo(() => {
             </div>
 
 
+                {isDebugMode && (
+                  <>
+                    <div className="border-t border-slate-800 my-2"></div>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('logs'); setIsMobileSidebarOpen(false); }}
+                      title="Sistem Log"
+                      className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                        activeTab === 'logs'
+                          ? 'bg-amber-600 text-white shadow-md shadow-amber-600/10'
+                          : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4 shrink-0 text-amber-500" />
+                      <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Sistem Log (Debug)</span>
+                    </button>
+                  </>
+                )}
             <div className="border-t border-slate-800 my-2"></div>
             <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
               Akses Perangkat
@@ -2377,7 +2438,7 @@ const monthlyKPIData = React.useMemo(() => {
                           className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>Mulai Check-In Kerja</span>
+                          <span>Mulai Masuk Kerja</span>
                         </button>
                       ) : todayRecord.isManualCheckIn && !todayRecord.arrivalTimeAtWarehouse ? (
                         /* Manual Check-In but not yet confirmed arrival at Warehouse */
@@ -2452,7 +2513,7 @@ const monthlyKPIData = React.useMemo(() => {
                           className="w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
                         >
                           <LogOut className="w-4 h-4" />
-                          <span>Lakukan Check-Out (Pulang)</span>
+                          <span>Selesai Kerja (Check-Out)</span>
                         </button>
                       ) : (
                         <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 rounded-xl text-center text-xs space-y-1">
@@ -3040,6 +3101,25 @@ const monthlyKPIData = React.useMemo(() => {
                     </div>
                   )}
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 text-slate-800 border-t border-slate-200 pt-6">
+                    {/* Debug Toggle */}
+                    <div className="space-y-4 col-span-1 md:col-span-2">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-blue-500" />
+                        <span>Sistem Debug & Diagnostik</span>
+                      </h4>
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+                        <div>
+                           <p className="text-[11px] font-bold text-slate-800">Aktifkan Mode Debug</p>
+                           <p className="text-[10px] text-slate-500">Merekam log internal aplikasi untuk dianalisa saat terjadi error (akan memunculkan tab Log baru).</p>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 border border-slate-200 rounded-lg shadow-sm">
+                          <input type="checkbox" checked={isDebugMode} onChange={(e) => setIsDebugMode(e.target.checked)} className="w-3.5 h-3.5" />
+                          <span className="text-[10px] font-bold text-slate-600">{isDebugMode ? 'ON' : 'OFF'}</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 text-slate-800">
                     {/* Change profile Photo URL */}
                     <div className="space-y-4">
@@ -3118,6 +3198,49 @@ const monthlyKPIData = React.useMemo(() => {
                       </div>
                     </form>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================================
+               TAB: LOGS (DEBUG)
+               ========================================================================= */}
+            {activeTab === 'logs' && isDebugMode && (
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm animate-fade-in text-slate-800 flex flex-col h-[500px]">
+                <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
+                  <div>
+                    <h4 className="font-display font-bold text-sm text-slate-900 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-amber-600" />
+                      Log Debugger Sistem
+                    </h4>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Memantau aktivitas internal aplikasi dan merespons error.</p>
+                  </div>
+
+                  <div className="flex gap-2 items-center">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(debugLogs.join('\n'))}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm cursor-pointer"
+                    >
+                      Copy Logs
+                    </button>
+                    <button
+                      onClick={() => {
+                        logsRef.current = [];
+                        setDebugLogs([]);
+                      }}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-bold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 p-4 bg-slate-900 text-emerald-400 font-mono text-[10px] overflow-y-auto custom-scrollbar whitespace-pre-wrap break-all leading-relaxed">
+                  {debugLogs.length > 0 ? debugLogs.map((log, i) => (
+                    <div key={i} className="mb-1 border-b border-slate-800/50 pb-1">{log}</div>
+                  )) : (
+                    <p className="text-slate-500 italic text-center mt-10">Menunggu log aktivitas baru...</p>
+                  )}
                 </div>
               </div>
             )}
@@ -4205,6 +4328,8 @@ const monthlyKPIData = React.useMemo(() => {
                     </div>
                   </div>
                 )}
+
+
 
                 {/* ----------------------------------------------------------------------
                    SUBTAB: DESTRUCTIVE SYSTEM RESET (FACTORY RESET)
