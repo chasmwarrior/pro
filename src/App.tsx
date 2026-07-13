@@ -943,7 +943,13 @@ export default function App() {
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error("Invalid server response: " + text.substring(0, 50));
+      }
 
       if (!res.ok) {
         if (data.outsideGeofence) {
@@ -986,7 +992,13 @@ export default function App() {
           lng: deviceLng
         })
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error("Invalid server response: " + text.substring(0, 50));
+      }
       if (!res.ok) {
         alert(data.error);
         return;
