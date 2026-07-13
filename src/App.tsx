@@ -262,28 +262,41 @@ export default function App() {
     const originalError = console.error;
     const originalWarn = console.warn;
 
+    const originalDebug = console.debug;
+    const originalInfo = console.info;
+
     const addLog = (level: string, ...args: any[]) => {
       try {
-        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        const msg = args.map(a => {
+            if (a instanceof Error) return a.toString();
+            if (typeof a === 'object') {
+                try { return JSON.stringify(a); } catch(e) { return '[Unserializable Object]'; }
+            }
+            return String(a);
+        }).join(' ');
+        const time = new Date().toLocaleTimeString();
         logsRef.current = [`[${time}] [${level}] ${msg}`, ...logsRef.current].slice(0, 50);
         // We only trigger state updates on explicit user interaction or interval, not synchronously
       } catch(e) {}
     };
 
-    console.log = (...args) => { originalLog(...args); addLog('INFO', ...args); };
+    console.log = (...args) => { originalLog(...args); addLog('LOG', ...args); };
     console.error = (...args) => { originalError(...args); addLog('ERROR', ...args); };
     console.warn = (...args) => { originalWarn(...args); addLog('WARN', ...args); };
+    console.debug = (...args) => { originalDebug(...args); addLog('DEBUG', ...args); };
+    console.info = (...args) => { originalInfo(...args); addLog('INFO', ...args); };
 
-    // Update the visual logs state once every 2 seconds to avoid render thrashing
+    // Update the visual logs state fast
     const interval = setInterval(() => {
         setDebugLogs([...logsRef.current]);
-    }, 2000);
+    }, 500);
 
     return () => {
       console.log = originalLog;
       console.error = originalError;
       console.warn = originalWarn;
+      console.debug = originalDebug;
+      console.info = originalInfo;
       clearInterval(interval);
     };
   }, [isDebugMode]);
@@ -951,7 +964,8 @@ export default function App() {
       setEmergencyLateReason('');
       fetchAttendanceHistory();
     } catch (e) {
-      alert("Proses Check-In gagal.");
+      console.error("Proses Check-In Error:", e);
+      alert("Proses Check-In gagal. Cek logs untuk detail.");
     }
   };
 
