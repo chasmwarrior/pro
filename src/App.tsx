@@ -4268,9 +4268,11 @@ const monthlyKPIData = React.useMemo(() => {
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm mt-6">
                       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
                         <h4 className="font-display font-bold text-sm text-slate-800">Riwayat Persetujuan</h4>
-                        <p className="text-xs text-slate-500 mt-0.5">Daftar keputusan yang sudah diambil (Libur/Lembur). Anda dapat mengubah kembali keputusan jika terjadi kesalahan.</p>
+                        <p className="text-xs text-slate-500 mt-0.5">Daftar keputusan yang sudah diambil (Libur/Absensi/Lembur). Anda dapat mengubah kembali keputusan jika terjadi kesalahan.</p>
                       </div>
                       <div className="p-5 space-y-4">
+                        {/* Leave Requests History */}
+                        <h5 className="text-xs font-bold text-slate-600 uppercase">Libur</h5>
                         {leaveRequests.filter(l => l.status === 'approved' || l.status === 'rejected').length > 0 ? (
                           leaveRequests.filter(l => l.status === 'approved' || l.status === 'rejected').map(leave => (
                             <div key={leave.id} className="border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50">
@@ -4288,6 +4290,40 @@ const monthlyKPIData = React.useMemo(() => {
                             </div>
                           ))
                         ) : <div className="text-center py-6 text-sm text-slate-400">Tidak ada riwayat persetujuan libur.</div>}
+
+                        {/* Attendance History */}
+                        <h5 className="text-xs font-bold text-slate-600 uppercase mt-4 border-t pt-4">Absensi / Lembur</h5>
+                        {attendanceRecords.filter(r => (r.status === 'approved' || r.status === 'rejected') && (r.isManualCheckIn || r.isOutsideGeofence || r.note?.includes('Lembur') || r.note?.includes('Overtime'))).length > 0 ? (
+                          attendanceRecords.filter(r => (r.status === 'approved' || r.status === 'rejected') && (r.isManualCheckIn || r.isOutsideGeofence || r.note?.includes('Lembur') || r.note?.includes('Overtime'))).map(rec => (
+                            <div key={rec.id} className="border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50">
+                              <div>
+                                <h5 className="font-bold text-sm text-slate-800">{rec.username} <span className="font-normal text-slate-500">({rec.division})</span></h5>
+                                <span className={`text-[9px] px-2 py-0.5 rounded font-bold ${rec.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                   {rec.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'}
+                                </span>
+                                <p className="text-xs text-slate-500 mt-1">Tanggal: {rec.date}</p>
+                                <p className="text-xs text-slate-500 mt-1">Catatan: {rec.note}</p>
+                              </div>
+                              <div className="flex flex-col gap-2 shrink-0">
+                                {rec.status === 'rejected' && <button type="button" onClick={() => {
+                                      if (rec.note?.includes('Overtime') || rec.note?.includes('Lembur')) {
+                                          handleApproveOvertime(rec.id, 'approve');
+                                      } else {
+                                          const isManual = rec.isManualCheckIn ? 'manual' : (rec.note?.includes('Darurat') ? 'emergency' : 'standard');
+                                          handleApproveAttendance(rec.id, 'approve', isManual, 'none', 'auto', 0);
+                                      }
+                                }} className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Disetujui</button>}
+                                {rec.status === 'approved' && <button type="button" onClick={() => {
+                                      if (rec.note?.includes('Overtime') || rec.note?.includes('Lembur')) {
+                                          handleApproveOvertime(rec.id, 'reject');
+                                      } else {
+                                          handleApproveAttendance(rec.id, 'reject', 'standard', 'none', 'auto', 0);
+                                      }
+                                }} className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Ditolak</button>}
+                              </div>
+                            </div>
+                          ))
+                        ) : <div className="text-center py-6 text-sm text-slate-400">Tidak ada riwayat persetujuan absensi/lembur.</div>}
                       </div>
                     </div>
                   </div>

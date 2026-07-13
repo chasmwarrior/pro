@@ -200,12 +200,42 @@ function timeStrToMinutes(timeStr: string): number {
   return h * 60 + m + s / 60;
 }
 
-// Calculate late fine or bonus based on dynamic config rules
-function calculateDynamicIncentives(timeStr: string, rules: any[]): { fineAmount: number, bonusAmount: number } {
+// Calculate late fine or bonus based on dynamic config rules (SOP 1 Juli 2026)
+function calculateDynamicIncentives(timeStr: string, rules: any[], isCourierManual = false): { fineAmount: number, bonusAmount: number } {
   const checkInMinutes = timeStrToMinutes(timeStr);
   let fineAmount = 0;
   let bonusAmount = 0;
 
+  const startMinutes = 10 * 60; // 10:00 WIB
+  const diffMinutes = checkInMinutes - startMinutes;
+
+  if (isCourierManual) {
+    // SOP Section 7: Kurir Absen Manual
+    if (diffMinutes > 120 && diffMinutes <= 150) fineAmount = 30000;
+    else if (diffMinutes > 150 && diffMinutes <= 180) fineAmount = 40000;
+    else if (diffMinutes > 180 && diffMinutes <= 210) fineAmount = 50000;
+    else if (diffMinutes > 210) {
+        const extraIntervals = Math.ceil((diffMinutes - 210) / 30);
+        fineAmount = 50000 + (extraIntervals * 10000);
+    }
+  } else {
+    // SOP Section 6: Pekerja Normal
+    if (diffMinutes > 11 && diffMinutes <= 30) fineAmount = 5000;
+    else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 10000;
+    else if (diffMinutes > 60 && diffMinutes <= 90) fineAmount = 15000;
+    else if (diffMinutes > 90 && diffMinutes <= 120) fineAmount = 20000;
+    else if (diffMinutes > 120 && diffMinutes <= 150) fineAmount = 30000;
+    else if (diffMinutes > 150 && diffMinutes <= 180) fineAmount = 40000;
+    else if (diffMinutes > 180 && diffMinutes <= 210) fineAmount = 50000;
+    else if (diffMinutes > 210) {
+        const extraIntervals = Math.ceil((diffMinutes - 210) / 30);
+        fineAmount = 50000 + (extraIntervals * 10000);
+    } else if (diffMinutes <= 0) {
+        bonusAmount = 10000; // Legacy Tepat Waktu fallback
+    }
+  }
+
+  // Also apply any dynamic DB rules on top if they exist
   if (rules && Array.isArray(rules) && rules.length > 0) {
     for (const rule of rules) {
       if (!rule || !rule.startTime || !rule.endTime) continue;
@@ -217,18 +247,11 @@ function calculateDynamicIncentives(timeStr: string, rules: any[]): { fineAmount
           fineAmount = Math.max(fineAmount, Number(rule.amount) || 0); // Take highest applicable fine
         } else if (rule.type === 'bonus') {
           bonusAmount += (Number(rule.amount) || 0); // Accumulate bonuses
+        } else if (rule.type === 'lembur') {
+          bonusAmount += (Number(rule.amount) || 0); // Accumulate overtime
         }
       }
     }
-  } else {
-    // Legacy fallback to SOP 2026 hardcoded logic if no dynamic rules
-    const startMinutes = 10 * 60; // 10:00 WIB
-    const diffMinutes = checkInMinutes - startMinutes;
-
-    if (diffMinutes > 10 && diffMinutes <= 30) fineAmount = 5000;
-    else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 50000;
-    else if (diffMinutes > 60) fineAmount = 100000;
-    else bonusAmount = 25000; // Legacy bonusTepatWaktu
   }
 
   return { fineAmount, bonusAmount };
@@ -883,16 +906,25 @@ app.post('/api/attendance/approve-overtime', (req, res) => {
   if (action === 'approve') {
     record.status = 'approved';
     record.isOvertimePending = false;
-    record.note = record.note ? record.note.replace('Menunggu persetujuan admin.', 'Disetujui Admin.') : 'Overtime Disetujui';
-    // Optionally calculate overtime bonus here using config
-    const overtimeBonus = calculateDynamicIncentives(record.checkOutTime, db.config.rules).bonusAmount;
-    record.bonusAmount = (record.bonusAmount || 0) + overtimeBonus;
+    if (!record.note?.includes('Disetujui')) {
+        record.note = record.note ? record.note.replace('Menunggu persetujuan admin.', 'Disetujui Admin.') : 'Overtime Disetujui';
+        // Optionally calculate overtime bonus here using config
+        const overtimeBonus = calculateDynamicIncentives(record.checkOutTime || "21:00:00", db.config.rules).bonusAmount;
+        record.bonusAmount = (record.bonusAmount || 0) + overtimeBonus;
+    }
   } else {
-    record.status = 'approved'; // Revert back to approved standard shift
+    record.status = 'rejected'; // Show as rejected in history
     record.isOvertimePending = false;
-    // Overtime denied, clamp checkout time back to 20:00
-    record.checkOutTime = '20:00:00';
-    record.note = record.note ? record.note.replace('Checkout Overtime pada', 'Checkout Overtime (Ditolak) kembali ke').replace('Menunggu persetujuan admin.', '') : 'Overtime Ditolak';
+    // Overtime denied, we do NOT overwrite checkout time so it can be reverted!
+    if (!record.note?.includes('Ditolak')) {
+        record.note = record.note ? record.note.replace('Menunggu persetujuan admin.', 'Ditolak Admin.') : 'Overtime Ditolak';
+        // Reverse bonus if it was previously approved
+        if (record.note?.includes('Disetujui Admin')) {
+           const overtimeBonus = calculateDynamicIncentives(record.checkOutTime || "21:00:00", db.config.rules).bonusAmount;
+           record.bonusAmount = Math.max(0, (record.bonusAmount || 0) - overtimeBonus);
+           record.note = record.note.replace('Disetujui Admin.', 'Ditolak Admin.');
+        }
+    }
   }
 
   writeDB(db);
