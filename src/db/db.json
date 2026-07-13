@@ -78,11 +78,7 @@
         "telat": 2,
         "telatDarurat": 2,
         "pulangCepat": 3
-      },
-      "lastCheckInDevice": "PC-siti-01",
-      "currentLat": -6.2088,
-      "currentLng": 106.8456,
-      "lastActiveAt": "2026-07-13T09:57:55.277Z"
+      }
     }
   ],
   "attendanceRecords": [
@@ -158,30 +154,6 @@
       "checkOutLng": 106.8456,
       "checkOutLocationName": "Kantor Pusat Jakarta",
       "isEarlyOutViolation": true
-    },
-    {
-      "id": "att_k7bzix5kg",
-      "userId": "u4",
-      "username": "siti",
-      "division": "Operations",
-      "date": "2026-07-13",
-      "checkInTime": "09:57:55",
-      "checkInLat": -6.2088,
-      "checkInLng": 106.8456,
-      "checkInLocationName": "Kantor Pusat Jakarta",
-      "isLate": false,
-      "isEarlyOut": false,
-      "isOutsideGeofence": false,
-      "livenessPhotoUrl": null,
-      "status": "approved",
-      "fineAmount": 0,
-      "bonusAmount": 10000,
-      "note": "Tepat waktu (Bonus didapatkan).",
-      "isManualCheckIn": false,
-      "manualCheckInTime": null,
-      "arrivalTimeAtWarehouse": null,
-      "isConfirmedToBoss": false,
-      "usedQuotaType": null
     }
   ],
   "leaveRequests": [

@@ -491,7 +491,7 @@ app.post('/api/attendance/check-in', (req, res) => {
   // Handle core metrics
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
-  const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
+  let timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
 
   // Check if already checked in today
   const existingRecord = db.attendanceRecords.find((r: any) => r.userId === userId && r.date === dateStr);
@@ -636,7 +636,7 @@ app.post('/api/attendance/check-in', (req, res) => {
 
 app.post('/api/attendance/check-out', (req, res) => {
   try {
-  const { userId, lat, lng, device } = req.body;
+  const { userId, lat, lng, device, isOvertimePending } = req.body;
   const db = readDB();
 
   const user = db.users.find((u: any) => u.id === userId);
@@ -653,7 +653,7 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
-  const timeStr = now.toTimeString().split(' ')[0];
+  let timeStr = now.toTimeString().split(' ')[0];
 
   const recordIdx = db.attendanceRecords.findIndex((r: any) => r.userId === userId && r.date === dateStr);
   if (recordIdx === -1) {
@@ -686,7 +686,16 @@ app.post('/api/attendance/check-out', (req, res) => {
   let isEarlyOutViolation = false;
   let checkoutNote = '';
 
-  if (isEarlyOut) {
+  if (isOvertimePending) {
+    db.attendanceRecords[recordIdx].status = 'pending';
+    db.attendanceRecords[recordIdx].isOvertimePending = true;
+    checkoutNote = `Checkout Overtime pada ${timeStr}. Menunggu persetujuan admin.`;
+  } else if (hours >= 20) {
+    checkoutNote = `Pulang kerja di jam normal (${timeStr}).`
+    if (hours >= 20 && !isOvertimePending) {
+         timeStr = '20:00:00'; // clamp to normal checkout time unless overtime
+    }
+  } else if (isEarlyOut) {
     const currentMonthStr = dateStr.substring(0, 7);
     const previousEarlyOuts = db.attendanceRecords.filter((r: any) => 
       r.userId === userId && 
@@ -859,6 +868,37 @@ app.post('/api/leaves/cancel', (req, res) => {
   res.json({ success: true, message: 'Pengajuan libur berhasil dibatalkan.' });
 });
 
+// Admin approves a pending checkout (overtime)
+app.post('/api/attendance/approve-overtime', (req, res) => {
+  const { recordId, action } = req.body;
+  const db = readDB();
+
+  const recordIdx = db.attendanceRecords.findIndex((r: any) => r.id === recordId);
+  if (recordIdx === -1) {
+    return res.status(404).json({ error: 'Catatan absensi tidak ditemukan.' });
+  }
+
+  const record = db.attendanceRecords[recordIdx];
+
+  if (action === 'approve') {
+    record.status = 'approved';
+    record.isOvertimePending = false;
+    record.note = record.note ? record.note.replace('Menunggu persetujuan admin.', 'Disetujui Admin.') : 'Overtime Disetujui';
+    // Optionally calculate overtime bonus here using config
+    const overtimeBonus = calculateDynamicIncentives(record.checkOutTime, db.config.rules).bonusAmount;
+    record.bonusAmount = (record.bonusAmount || 0) + overtimeBonus;
+  } else {
+    record.status = 'approved'; // Revert back to approved standard shift
+    record.isOvertimePending = false;
+    // Overtime denied, clamp checkout time back to 20:00
+    record.checkOutTime = '20:00:00';
+    record.note = record.note ? record.note.replace('Checkout Overtime pada', 'Checkout Overtime (Ditolak) kembali ke').replace('Menunggu persetujuan admin.', '') : 'Overtime Ditolak';
+  }
+
+  writeDB(db);
+  res.json({ success: true, record });
+});
+
 // Admin approves a pending check-in (outside office or late)
 
 app.post('/api/attendance/approve-pending', (req, res) => {
@@ -882,6 +922,7 @@ app.post('/api/attendance/approve-pending', (req, res) => {
 
   if (action === 'approve') {
     record.status = 'approved';
+    record.isOvertimePending = false;
     record.isManualCheckIn = (classification === 'manual');
     if (classification === 'manual') {
       record.manualCheckInTime = record.checkInTime;
@@ -925,6 +966,7 @@ app.post('/api/attendance/approve-pending', (req, res) => {
     record.note = `Absen DISETUJUI oleh Admin/Supervisor. [Klasifikasi: ${classificationNames[classification] || classification}] [Sanksi: Rp ${record.fineAmount.toLocaleString('id-ID')}] [Jatah: ${quotaNames[quotaDeduction] || quotaDeduction}].`;
   } else {
     record.status = 'rejected';
+    record.isOvertimePending = false;
     record.note = 'Absen ditolak oleh Admin/Supervisor karena liveness tidak valid atau melanggar batas geofence.';
   }
 
@@ -1156,6 +1198,43 @@ app.post('/api/locations/delete', (req, res) => {
   db.locations = db.locations.filter((l: any) => l.id !== id);
   writeDB(db);
   res.json({ success: true });
+});
+
+app.post('/api/admin/manual-checkout', (req, res) => {
+  const { userId, timeStr, note } = req.body;
+  const db = readDB();
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+
+  const recordIdx = db.attendanceRecords.findIndex((r: any) => r.userId === userId && r.date === dateStr);
+  if (recordIdx === -1) {
+    return res.status(400).json({ error: 'Pegawai belum melakukan Check-In hari ini.' });
+  }
+
+  if (db.attendanceRecords[recordIdx].checkOutTime) {
+    return res.status(400).json({ error: 'Pegawai sudah melakukan Check-Out hari ini.' });
+  }
+
+  const [hours] = timeStr.split(':').map(Number);
+  const isEarlyOut = hours < 20;
+
+  if (isEarlyOut && user.leaveQuota.pulangCepat > 0) {
+      user.leaveQuota.pulangCepat -= 1;
+  }
+
+  db.attendanceRecords[recordIdx].checkOutTime = timeStr + ":00";
+  db.attendanceRecords[recordIdx].isEarlyOut = isEarlyOut;
+  db.attendanceRecords[recordIdx].checkOutLocationName = "Checkout Manual (Admin)";
+  db.attendanceRecords[recordIdx].note = `${db.attendanceRecords[recordIdx].note || ''} | Checkout Manual Admin (${timeStr}): ${note}`;
+
+  writeDB(db);
+  res.json({ success: true, record: db.attendanceRecords[recordIdx] });
 });
 
 // 8. Announcements (Pengumuman)

@@ -98,6 +98,12 @@ export default function App() {
       message,
       onConfirm: () => setCustomDialog(prev => ({ ...prev, isOpen: false }))
     });
+    setTimeout(() => {
+        setCustomDialog(prev => {
+            if (prev.isOpen && prev.type === 'alert' && prev.message === message) return { ...prev, isOpen: false };
+            return prev;
+        });
+    }, 3500);
   };
 
   const showCustomConfirm = (message: string, onConfirm: () => void, title = "Konfirmasi") => {
@@ -537,12 +543,15 @@ export default function App() {
   }, []);
 
   const generateDeviceFingerprint = () => {
-    // Generate simple readable mockup browser fingerprint for device binding
-    const userAgent = navigator.userAgent;
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-    const platform = navigator.platform || 'Unknown';
-    const screenWidth = window.screen.width;
-    const fingerprint = `${isMobile ? 'Mobile' : 'Desktop'}-${platform.split(' ')[0]}-${screenWidth}px`;
+    let fingerprint = localStorage.getItem('device_fingerprint');
+    if (!fingerprint) {
+      const userAgent = navigator.userAgent;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+      const platform = navigator.platform || 'Unknown';
+      const randomId = Math.random().toString(36).substring(2, 8);
+      fingerprint = `${isMobile ? 'Mobile' : 'Desktop'}-${platform.split(' ')[0]}-${randomId}`;
+      localStorage.setItem('device_fingerprint', fingerprint);
+    }
     setDeviceFingerprint(fingerprint);
   };
 
@@ -871,6 +880,10 @@ export default function App() {
   // WEBCAM LIVENESS PHOTO
   // --------------------------------------------------------------------------
   const startCamera = async () => {
+    if (permissionStates.camera === 'denied') {
+        showCustomAlert("Izin kamera ditolak. Silakan izinkan di pengaturan perangkat sidebar terlebih dahulu.", "Kamera Diblokir");
+        return;
+    }
     setShowCamera(true);
     setCameraError(null);
     try {
@@ -981,7 +994,13 @@ export default function App() {
       alert("GPS Anda belum terdeteksi.");
       return;
     }
-
+    const currentHour = serverTime.getHours();
+    let isOvertimePending = false;
+    if (currentHour < 20) {
+        if (!confirm("Peringatan: Anda akan di kenakan status pulang cepat jika checkout saat ini. Apakah Anda yakin?")) return;
+    } else if (currentHour >= 20) {
+        if (confirm("Jam kerja berakhir. Apakah Anda ingin mengajukan LEMBUR? Jika Batal, sistem mencatat pulang normal (20:00).")) isOvertimePending = true;
+    }
     try {
       const res = await fetch('/api/attendance/check-out', {
         method: 'POST',
@@ -989,7 +1008,8 @@ export default function App() {
         body: JSON.stringify({
           userId: currentUser.id,
           lat: deviceLat,
-          lng: deviceLng
+          lng: deviceLng,
+          isOvertimePending
         })
       });
       const text = await res.text();
@@ -1946,6 +1966,7 @@ const monthlyKPIData = React.useMemo(() => {
             >
               <Menu className="w-5 h-5" />
             </button>
+            <button onClick={() => window.location.reload()} className="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800 focus:outline-none ml-auto"><RefreshCw className="w-5 h-5" /></button>
           </header>
 
           <div className="flex-1 flex overflow-hidden relative">
@@ -2354,6 +2375,9 @@ const monthlyKPIData = React.useMemo(() => {
                   onClick={() => {
     if (permissionStates.gps === 'granted') {
       setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+      setDeviceLat(null);
+      setDeviceLng(null);
+      setCurrentGeofenceStatus('unknown');
     } else {
       requestGPSPermission();
     }
@@ -2646,50 +2670,54 @@ const monthlyKPIData = React.useMemo(() => {
                 {/* Dashboard Metrics (Quotas/Sisa jatah) */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   
-                  {/* QUOTA LIBUR */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shadow-sm">
-                      <CalendarIcon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Sisa Jatah Libur</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-sm font-medium text-slate-400">/ 4 Hari</span></p>
-                    </div>
-                  </div>
 
-                  {/* QUOTA TELAT */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm">
-                      <Clock className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Toleransi Telat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-sm font-medium text-slate-400">/ 2 Kali</span></p>
-                    </div>
-                  </div>
-
-                  {/* TELAT DARURAT */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shadow-sm">
-                      <AlertTriangle className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Telat Darurat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-sm font-medium text-slate-400">/ 2 Kali</span></p>
-                    </div>
-                  </div>
-
-                  {/* PULANG CEPAT */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shadow-sm">
-                      <LogOut className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Pulang Cepat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-sm font-medium text-slate-400">/ 3 Kali</span></p>
-                    </div>
-                  </div>
                 </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    {/* QUOTA LIBUR */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shadow-sm">
+                        <CalendarIcon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Sisa Libur</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-xs font-medium text-slate-400">/ 4</span></p>
+                      </div>
+                    </div>
+
+                    {/* QUOTA TELAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Tol. Telat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
+                      </div>
+                    </div>
+
+                    {/* TELAT DARURAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shadow-sm">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Telat Darurat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
+                      </div>
+                    </div>
+
+                    {/* PULANG CEPAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shadow-sm">
+                        <LogOut className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Pulang Cepat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-xs font-medium text-slate-400">/ 3</span></p>
+                      </div>
+                    </div>
+                  </div>
 
                               {/* ----------------------------------------------------------------------
                    DEVICE PERMISSIONS BANNER / COMPONENT
@@ -3553,12 +3581,12 @@ const monthlyKPIData = React.useMemo(() => {
                           <h4 className="font-display font-bold text-sm text-slate-800">Antrean Verifikasi Liveness (Absen Luar Area)</h4>
                           <p className="text-xs text-slate-500 mt-0.5">Melihat unggahan foto lokasi selfie liveness check milik pekerja di luar wilayah geofence.</p>
                         </div>
-                        {attendanceRecords.filter(r => r.status === 'pending').length > 0 && (
+                        {attendanceRecords.filter(r => r.status === 'pending' || r.isOvertimePending).length > 0 && (
                           <div className="flex items-center gap-2.5">
                             <button
                               type="button"
                               onClick={() => {
-                                const pendingRecs = attendanceRecords.filter(r => r.status === 'pending');
+                                const pendingRecs = attendanceRecords.filter(r => r.status === 'pending' || r.isOvertimePending);
                                 if (selectedPendingAttendanceIds.length === pendingRecs.length) {
                                   setSelectedPendingAttendanceIds([]);
                                 } else {
@@ -4237,6 +4265,31 @@ const monthlyKPIData = React.useMemo(() => {
                         Simpan Semua Pengaturan Platform
                       </button>
                     </form>
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm mt-6">
+                      <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                        <h4 className="font-display font-bold text-sm text-slate-800">Riwayat Persetujuan</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">Daftar keputusan yang sudah diambil (Libur/Lembur). Anda dapat mengubah kembali keputusan jika terjadi kesalahan.</p>
+                      </div>
+                      <div className="p-5 space-y-4">
+                        {leaveRequests.filter(l => l.status === 'approved' || l.status === 'rejected').length > 0 ? (
+                          leaveRequests.filter(l => l.status === 'approved' || l.status === 'rejected').map(leave => (
+                            <div key={leave.id} className="border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50">
+                              <div>
+                                <h5 className="font-bold text-sm text-slate-800">{leave.username} <span className="font-normal text-slate-500">({leave.division})</span></h5>
+                                <span className={`text-[9px] px-2 py-0.5 rounded font-bold ${leave.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                   {leave.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'}
+                                </span>
+                                <p className="text-xs text-slate-500 mt-1">Pengajuan: {leave.date} - {leave.notes}</p>
+                              </div>
+                              <div className="flex flex-col gap-2 shrink-0">
+                                {leave.status === 'rejected' && <button type="button" onClick={() => handleApproveLeaveRequest(leave.id, true)} className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Disetujui</button>}
+                                {leave.status === 'approved' && <button type="button" onClick={() => handleApproveLeaveRequest(leave.id, false)} className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Ditolak</button>}
+                              </div>
+                            </div>
+                          ))
+                        ) : <div className="text-center py-6 text-sm text-slate-400">Tidak ada riwayat persetujuan libur.</div>}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -4329,6 +4382,26 @@ const monthlyKPIData = React.useMemo(() => {
                                   <button
                                     type="button"
                                     onClick={async () => {
+                                      const time = prompt("Jam Pulang Cepat (HH:MM):", "16:00");
+                                      if (!time) return;
+                                      const note = prompt("Keterangan Pulang Cepat:", "Pulang karena sakit");
+                                      if (note === null) return;
+                                      try {
+                                        const res = await fetch('/api/admin/manual-checkout', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: worker.id, timeStr: time, note })
+                                        });
+                                        if (res.ok) { alert("Berhasil."); fetchAllWorkers(); fetchAttendanceHistory(); }
+                                      } catch (e) {}
+                                    }}
+                                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Pulang Cepat (Manual)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
                                       const disabled = !worker.disabled;
                                       const res = await fetch('/api/users/disable', {
                                         method: 'POST',
@@ -4416,7 +4489,8 @@ const monthlyKPIData = React.useMemo(() => {
       {/* Custom Dialog Overlay */}
       {customDialog.isOpen && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in text-slate-800">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4 relative">
+            <button onClick={() => setCustomDialog(prev => ({ ...prev, isOpen: false }))} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             <div className="flex items-start gap-3.5">
               <div className={`p-2.5 rounded-xl shrink-0 ${
                 customDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
