@@ -48,7 +48,24 @@ window.fetch = async (...args) => {
 
 export default function App() {
   // 1. App State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, _setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('currentUser');
+    if (saved) {
+      try { return JSON.parse(saved); } catch(e) {}
+    }
+    return null;
+  });
+  const setCurrentUser = (user: User | null | ((prev: User | null) => User | null)) => {
+    _setCurrentUser((prev: User | null) => {
+        const nextUser = typeof user === 'function' ? (user as any)(prev) : user;
+        if (nextUser) {
+           localStorage.setItem('currentUser', JSON.stringify(nextUser));
+        } else {
+           localStorage.removeItem('currentUser');
+        }
+        return nextUser;
+    });
+  };
   const [radarLiveUpdates, setRadarLiveUpdates] = useState<Record<string, { lat: number, lng: number }>>({});
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox' | 'history' | 'stats' | 'logs'>('dashboard');
   const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs'>('radar');
@@ -2308,7 +2325,13 @@ const monthlyKPIData = React.useMemo(() => {
                 </div>
                 <button
                   type="button"
-                  onClick={requestGPSPermission}
+                  onClick={() => {
+    if (permissionStates.gps === 'granted') {
+      setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+    } else {
+      requestGPSPermission();
+    }
+  }}
                   className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                     permissionStates.gps === 'granted' ? 'bg-emerald-500' : 'bg-slate-600'
                   }`}
@@ -2326,7 +2349,18 @@ const monthlyKPIData = React.useMemo(() => {
                 </div>
                 <button
                   type="button"
-                  onClick={requestCameraPermission}
+                  onClick={() => {
+    if (permissionStates.camera === 'granted') {
+      setPermissionStates(prev => ({ ...prev, camera: 'denied' }));
+      if (videoRef.current && videoRef.current.srcObject) {
+         const tracks = videoRef.current.srcObject.getTracks();
+         tracks.forEach(track => track.stop());
+         videoRef.current.srcObject = null;
+      }
+    } else {
+      requestCameraPermission();
+    }
+  }}
                   className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                     permissionStates.camera === 'granted' ? 'bg-blue-500' : 'bg-slate-600'
                   }`}
@@ -2379,40 +2413,47 @@ const monthlyKPIData = React.useMemo(() => {
                   {/* Left Column: Tracking Status / Controls */}
                   <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6 shadow-sm text-slate-800">
                     <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Pencatatan Presensi</span>
-                      <h3 className="font-display font-bold text-lg text-slate-900 mt-1">Presensi Hari Ini</h3>
-                      <p className="text-xs text-slate-500 mt-1 leading-normal">
-                        Geofence membatasi radius absensi masuk ke kantor/gudang. GPS live perangkat digunakan untuk validasi.
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block font-mono">Status Sistem Presensi</span>
+                      <h3 className="font-display font-black text-2xl text-slate-800 tracking-tight mt-1">Presensi Hari Ini</h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-[85%]">
+                        Geofence membatasi radius absensi. Sistem menggunakan GPS & liveness wajah untuk keamanan ganda.
                       </p>
                     </div>
 
-                    {/* Geolocation Loading Indicator */}
                     {isLocating && (
-                      <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-3 text-xs text-blue-600">
-                        <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                        <span>Sedang melacak koordinat GPS perangkat...</span>
+                      <div className="bg-blue-50/80 border border-blue-100 p-4 rounded-2xl flex items-center gap-3 text-xs text-blue-600 shadow-inner">
+                        <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                        <span className="font-medium">Menyinkronkan satelit GPS perangkat...</span>
                       </div>
                     )}
 
-                    {/* Coordinates details */}
                     {!isLocating && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3.5 font-mono text-xs text-slate-600">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Koordinat Anda:</span>
-                          <span className="text-blue-600 font-bold">
-                            {deviceLat ? `${deviceLat.toFixed(5)}, ${deviceLng?.toFixed(5)}` : 'Sinyal Tidak Terdeteksi'}
+                      <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4 font-mono text-xs shadow-xl relative overflow-hidden group">
+
+                        <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4 group-hover:scale-110 transition-transform duration-500">
+                          <MapPin className="w-32 h-32 text-white" />
+                        </div>
+
+                        <div className="relative z-10 flex justify-between items-center">
+                          <span className="text-slate-400 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-400" /> Koordinat Anda:</span>
+                          <span className="text-blue-400 font-bold bg-blue-500/10 px-2 py-1 rounded-lg">
+                            {deviceLat ? `${deviceLat.toFixed(5)}, ${deviceLng?.toFixed(5)}` : 'Sinyal Hilang'}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center border-t border-slate-200/50 pt-2.5">
-                          <span className="text-slate-400">Penempatan Kerja:</span>
-                          <span className="text-slate-700 font-semibold">
-                            {currentUser.division} ({currentUser.position})
+                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
+                          <span className="text-slate-400 flex items-center gap-2"><Building2 className="w-4 h-4 text-emerald-400" /> Penempatan Kerja:</span>
+                          <span className="text-slate-200 font-semibold text-right flex flex-col items-end">
+                            {currentUser.division} <span className="text-[10px] text-slate-400">{currentUser.position}</span>
                           </span>
                         </div>
-                        <div className="flex justify-between items-center border-t border-slate-200/50 pt-2.5">
-                          <span className="text-slate-400">Kunci Perangkat:</span>
-                          <span className="text-slate-700 font-semibold">
-                            {currentUser.lastCheckInDevice ? '🔒 Terkunci' : '🔓 Belum Dikunci'}
+                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
+                          <span className="text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-amber-400" /> Kunci Perangkat:</span>
+                          <span className="text-slate-200 font-semibold">
+                            {currentUser.lastCheckInDevice ? (
+                               <span className="flex items-center gap-1.5 text-emerald-400"><ShieldCheck className="w-4 h-4"/> Terkunci</span>
+                            ) : (
+                               <span className="flex items-center gap-1.5 text-amber-400"><Unlock className="w-4 h-4"/> Belum Dikunci</span>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -2435,7 +2476,7 @@ const monthlyKPIData = React.useMemo(() => {
                           }}
                           id="btn-check-in"
                           disabled={isLocating}
-                          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
+                          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-sm py-4 rounded-2xl shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_25px_rgba(37,99,235,0.5)] transition-all duration-300 transform hover:-translate-y-1 active:scale-[0.98] flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
                         >
                           <CheckCircle2 className="w-4 h-4" />
                           <span>Mulai Masuk Kerja</span>
@@ -2627,60 +2668,7 @@ const monthlyKPIData = React.useMemo(() => {
                               {/* ----------------------------------------------------------------------
                    DEVICE PERMISSIONS BANNER / COMPONENT
                    ---------------------------------------------------------------------- */}
-                <div className="bg-gradient-to-r from-slate-50 to-blue-50/30 border border-slate-200 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                  <div className="space-y-1">
-                    <h4 className="font-display font-bold text-xs text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Manajer Hak Akses & Keamanan Perangkat</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Aplikasi ini memerlukan beberapa izin perangkat agar fitur absensi geofence, deteksi liveness wajah, dan unggahan foto profil dapat berfungsi secara legal dan aman.
-                    </p>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2.5 items-center">
-                    {/* GPS Permission Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <MapPin className={`w-3.5 h-3.5 ${permissionStates.gps === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      <span className="font-medium text-slate-600">GPS/Lokasi:</span>
-                      {permissionStates.gps === 'granted' ? (
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={requestGPSPermission}
-                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
-                        >
-                          Minta Izin
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Camera Permission Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <Camera className={`w-3.5 h-3.5 ${permissionStates.camera === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      <span className="font-medium text-slate-600">Kamera:</span>
-                      {permissionStates.camera === 'granted' ? (
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={requestCameraPermission}
-                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
-                        >
-                          Minta Izin
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Storage / Gallery Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <Upload className={`w-3.5 h-3.5 text-emerald-500`} />
-                      <span className="font-medium text-slate-600">Galeri/File:</span>
-                      <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Tersedia</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -4272,7 +4260,7 @@ const monthlyKPIData = React.useMemo(() => {
                                 <td className="py-1.5 px-3 font-mono text-[10px]">
                                   {worker.leaveQuota.libur} Hari
                                 </td>
-                                <td className="py-1.5 px-3">
+                                <td className="py-1.5 px-3 flex gap-1">
                                   <button
                                     type="button"
                                     onClick={async () => {
@@ -4292,6 +4280,43 @@ const monthlyKPIData = React.useMemo(() => {
                                     className="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
                                   >
                                     Atur Jatah Libur
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (confirm(`Apakah Anda yakin ingin menghapus akun ${worker.username}?`)) {
+                                        const res = await fetch('/api/users/delete', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: worker.id })
+                                        });
+                                        if (res.ok) {
+                                          alert("Akun berhasil dihapus.");
+                                          fetchAllWorkers();
+                                        }
+                                      }
+                                    }}
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Hapus
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const disabled = !worker.disabled;
+                                      const res = await fetch('/api/users/disable', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ userId: worker.id, disabled })
+                                      });
+                                      if (res.ok) {
+                                        alert(`Akun berhasil ${disabled ? 'dinonaktifkan' : 'diaktifkan'}.`);
+                                        fetchAllWorkers();
+                                      }
+                                    }}
+                                    className="bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    {worker.disabled ? 'Aktifkan' : 'Nonaktifkan'}
                                   </button>
                                 </td>
                               </tr>
@@ -4461,10 +4486,17 @@ const monthlyKPIData = React.useMemo(() => {
               {/* Force tracking refresh */}
               <button
                 type="button"
-                onClick={trackDeviceLocation}
-                className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
+                onClick={async () => {
+                   const btn = document.getElementById('btn-refresh-gps');
+                   if (btn) btn.classList.add('animate-spin');
+                   await trackDeviceLocation();
+                   setTimeout(() => {
+                     if (btn) btn.classList.remove('animate-spin');
+                   }, 800);
+                }}
+                className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw id="btn-refresh-gps" className="w-4 h-4" />
                 <span>Gunakan Lokasi Saat Ini (Segarkan GPS)</span>
               </button>
               <button
