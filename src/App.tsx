@@ -774,6 +774,18 @@ export default function App() {
     }
   };
 
+  const syncCurrentUser = async () => {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/users');
+        const data = await res.json();
+        const me = data.find((u: any) => u.id === currentUser.id);
+        if (me) {
+            setCurrentUser(me);
+        }
+    } catch(e){}
+  };
+
   // --------------------------------------------------------------------------
   // AUTHENTICATION
   // --------------------------------------------------------------------------
@@ -936,7 +948,7 @@ export default function App() {
   const handleCheckIn = async (photoOverride?: string | null) => {
     const finalPhoto = photoOverride !== undefined ? photoOverride : livenessPhoto;
     if (!currentUser || deviceLat === null || deviceLng === null) {
-      alert("GPS Anda belum terdeteksi. Silakan muat ulang halaman atau izinkan GPS.");
+      showCustomAlert("GPS Anda belum terdeteksi. Silakan muat ulang halaman atau izinkan GPS.", "Error");
       return;
     }
 
@@ -967,31 +979,32 @@ export default function App() {
       if (!res.ok) {
         if (data.outsideGeofence) {
           setIsOutsideGeofence(true);
-          alert(data.error);
+          showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
           startCamera();
         } else {
-          alert(data.error);
+          showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
         }
         return;
       }
 
-      alert(data.message);
+      showCustomAlert(data.message, "Sukses");
       setLivenessPhoto(null);
       setIsOutsideGeofence(false);
       setIsManualCheckIn(false);
       setIsEmergencyLate(false);
       setEmergencyLateReason('');
       fetchAttendanceHistory();
+      syncCurrentUser();
     } catch (e) {
       console.error("Proses Check-In Error:", e);
-      alert("Proses Check-In gagal. Cek logs untuk detail.");
+      showCustomAlert("Proses Check-In gagal. Cek logs untuk detail.", "Error");
     }
   };
 
   const handleCheckOut = async (photoOverride?: string | null) => {
     const finalPhoto = photoOverride !== undefined ? photoOverride : livenessPhoto;
     if (!currentUser || deviceLat === null || deviceLng === null) {
-      alert("GPS Anda belum terdeteksi.");
+      showCustomAlert("GPS Anda belum terdeteksi.", "Error");
       return;
     }
     const currentHour = serverTime.getHours();
@@ -1020,13 +1033,14 @@ export default function App() {
         throw new Error("Invalid server response: " + text.substring(0, 50));
       }
       if (!res.ok) {
-        alert(data.error);
+        showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
         return;
       }
-      alert("Berhasil melakukan Check-Out untuk hari ini.");
+      showCustomAlert("Berhasil melakukan Check-Out untuk hari ini.", "Sukses");
       fetchAttendanceHistory();
+      syncCurrentUser();
     } catch (e) {
-      alert("Proses Check-Out gagal.");
+      showCustomAlert("Proses Check-Out gagal.", "Error");
     }
   };
 
@@ -1044,14 +1058,14 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error);
+        showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
         return;
       }
-      alert(data.record?.note || "Kedatangan berhasil dikonfirmasi!");
+      showCustomAlert(data.record?.note || "Kedatangan berhasil dikonfirmasi!", "Sukses");
       setIsConfirmedToBoss(false);
       fetchAttendanceHistory();
     } catch (e) {
-      alert("Gagal melakukan konfirmasi kedatangan.");
+      showCustomAlert("Gagal melakukan konfirmasi kedatangan.", "Error");
     } finally {
       setIsSubmittingManualArrive(false);
     }
@@ -1184,12 +1198,12 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert("Pekerja berhasil disetujui, ditempatkan, dan aktif.");
+      showCustomAlert("Pekerja berhasil disetujui, ditempatkan, dan aktif.", "Sukses");
       setApprovalUserForm(null);
       fetchPendingWorkers();
       fetchAllWorkers();
     } else {
-      alert("Gagal menyetujui pekerja.");
+      showCustomAlert("Gagal menyetujui pekerja.", "Error");
     }
   };
 
@@ -1225,7 +1239,7 @@ export default function App() {
       }
     }
 
-    alert(`Penyetujuan Massal Selesai: ${successCount} dari ${selectedPendingWorkerIds.length} pendaftar berhasil disetujui.`);
+    showCustomAlert(`Penyetujuan Massal Selesai: ${successCount} dari ${selectedPendingWorkerIds.length} pendaftar berhasil disetujui.`, "Sukses");
     setSelectedPendingWorkerIds([]);
     setIsBulkApprovingWorkers(false);
     fetchPendingWorkers();
@@ -1242,7 +1256,7 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert("Pekerja berhasil ditolak.");
+      showCustomAlert("Pekerja berhasil ditolak.", "Sukses");
       fetchPendingWorkers();
       fetchAllWorkers();
     }
@@ -1302,7 +1316,7 @@ export default function App() {
       }
     }
 
-    alert(`Persetujuan Massal Selesai: ${successCount} dari ${selectedPendingAttendanceIds.length} rekor absensi berhasil disahkan.`);
+    showCustomAlert(`Persetujuan Massal Selesai: ${successCount} dari ${selectedPendingAttendanceIds.length} rekor absensi berhasil disahkan.`, "Sukses");
     setSelectedPendingAttendanceIds([]);
     setIsBulkApprovingAttendance(false);
     fetchAttendanceHistory();
@@ -1340,7 +1354,7 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert(editingLocationId ? "Lokasi berhasil diubah." : "Lokasi berhasil ditambahkan.");
+      showCustomAlert(editingLocationId ? "Lokasi berhasil diubah." : "Lokasi berhasil ditambahkan.", "Sukses");
       setNewLocationName('');
       setNewLocationLat('');
       setNewLocationLng('');
@@ -1348,7 +1362,7 @@ export default function App() {
       setEditingLocationId(null);
       fetchLocations();
     } else {
-      alert("Gagal memproses lokasi kerja.");
+      showCustomAlert("Gagal memproses lokasi kerja.", "Error");
     }
   };
 
@@ -1357,7 +1371,7 @@ export default function App() {
       setNewLocationLat(deviceLat.toString());
       setNewLocationLng(deviceLng.toString());
     } else {
-      alert("GPS belum mendeteksi lokasi saat ini.");
+      showCustomAlert("GPS belum mendeteksi lokasi saat ini.", "Error");
     }
   };
 
@@ -1525,7 +1539,7 @@ export default function App() {
 
   const handleExportUserLogsCSV = () => {
     if (filteredUserRecords.length === 0) {
-      alert("Tidak ada log riwayat kehadiran untuk diekspor.");
+      showCustomAlert("Tidak ada log riwayat kehadiran untuk diekspor.", "Error");
       return;
     }
 
@@ -2518,7 +2532,7 @@ const monthlyKPIData = React.useMemo(() => {
                           type="button"
                           onClick={() => {
                             if (deviceLat === null) {
-                              alert("GPS Anda belum terdeteksi atau izin belum diberikan.");
+                              showCustomAlert("GPS Anda belum terdeteksi atau izin belum diberikan.", "Error");
                               return;
                             }
                             setMapModalAction('checkin'); 
@@ -2593,7 +2607,7 @@ const monthlyKPIData = React.useMemo(() => {
                           type="button"
                           onClick={() => {
                             if (deviceLat === null) {
-                              alert("GPS Anda belum terdeteksi atau izin belum diberikan.");
+                              showCustomAlert("GPS Anda belum terdeteksi atau izin belum diberikan.", "Error");
                               return;
                             }
                             setMapModalAction('checkout'); 
@@ -4387,7 +4401,7 @@ const monthlyKPIData = React.useMemo(() => {
                                           body: JSON.stringify({ userId: worker.id, libur: Number(newLibur) })
                                         });
                                         if (res.ok) {
-                                          alert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.");
+                                          showCustomAlert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.", "Sukses");
                                           fetchAllWorkers();
                                         }
                                       }
@@ -4406,7 +4420,7 @@ const monthlyKPIData = React.useMemo(() => {
                                           body: JSON.stringify({ userId: worker.id })
                                         });
                                         if (res.ok) {
-                                          alert("Akun berhasil dihapus.");
+                                          showCustomAlert("Akun berhasil dihapus.", "Sukses");
                                           fetchAllWorkers();
                                         }
                                       }
@@ -4428,7 +4442,7 @@ const monthlyKPIData = React.useMemo(() => {
                                           headers: { 'Content-Type': 'application/json' },
                                           body: JSON.stringify({ userId: worker.id, timeStr: time, note })
                                         });
-                                        if (res.ok) { alert("Berhasil."); fetchAllWorkers(); fetchAttendanceHistory(); }
+                                        if (res.ok) { showCustomAlert("Berhasil.", "Sukses"); fetchAllWorkers(); fetchAttendanceHistory(); syncCurrentUser(); }
                                       } catch (e) {}
                                     }}
                                     className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
@@ -4445,7 +4459,7 @@ const monthlyKPIData = React.useMemo(() => {
                                         body: JSON.stringify({ userId: worker.id, disabled })
                                       });
                                       if (res.ok) {
-                                        alert(`Akun berhasil ${disabled ? 'dinonaktifkan' : 'diaktifkan'}.`);
+                                        showCustomAlert(`Akun berhasil ${disabled ? 'dinonaktifkan' : 'diaktifkan'}.`, "Sukses");
                                         fetchAllWorkers();
                                       }
                                     }}

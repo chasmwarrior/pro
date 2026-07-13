@@ -220,7 +220,7 @@ function calculateDynamicIncentives(timeStr: string, rules: any[], isCourierManu
     }
   } else {
     // SOP Section 6: Pekerja Normal
-    if (diffMinutes > 11 && diffMinutes <= 30) fineAmount = 5000;
+    if (diffMinutes >= 11 && diffMinutes <= 30) fineAmount = 5000;
     else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 10000;
     else if (diffMinutes > 60 && diffMinutes <= 90) fineAmount = 15000;
     else if (diffMinutes > 90 && diffMinutes <= 120) fineAmount = 20000;
