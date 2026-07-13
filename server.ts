@@ -88,86 +88,10 @@ function ensureDB() {
           currentLat: -6.2091,
           currentLng: 106.8461,
           lastActiveAt: new Date().toISOString()
-        },
-        {
-          id: "u4",
-          username: "siti",
-          email: "siti@absensi.com",
-          password: "password",
-          role: "worker",
-          status: "pending",
-          division: "Operations",
-          position: "Staff Gudang",
-          photoUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-          leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
         }
-      ],
-      attendanceRecords: [
-        {
-          id: "r1",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-08",
-          checkInTime: "07:45:12",
-          checkInLat: -6.2089,
-          checkInLng: 106.8458,
-          checkInLocationName: "Kantor Pusat Jakarta",
-          checkOutTime: "17:05:30",
-          checkOutLat: -6.2088,
-          checkOutLng: 106.8456,
-          checkOutLocationName: "Kantor Pusat Jakarta",
-          isLate: false,
-          isEarlyOut: false,
-          isOutsideGeofence: false,
-          status: "approved",
-          fineAmount: 0,
-          bonusAmount: 25000,
-          note: "Hadir tepat waktu di area kantor"
-        },
-        {
-          id: "r2",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-09",
-          checkInTime: "08:15:44",
-          checkInLat: -6.2088,
-          checkInLng: 106.8456,
-          checkInLocationName: "Kantor Pusat Jakarta",
-          checkOutTime: "17:01:10",
-          checkOutLat: -6.2088,
-          checkOutLng: 106.8456,
-          checkOutLocationName: "Kantor Pusat Jakarta",
-          isLate: true,
-          isEarlyOut: false,
-          isOutsideGeofence: false,
-          status: "approved",
-          fineAmount: 50000,
-          bonusAmount: 0,
-          note: "Terlambat masuk 15 menit"
-        }
-      ],
-      leaveRequests: [
-        {
-          id: "l1",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-15",
-          status: "approved",
-          notes: "Menghadiri pernikahan keluarga"
-        },
-        {
-          id: "l2",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-20",
-          status: "pending",
-          notes: "Pemeriksaan kesehatan rutin"
-        }
-      ],
+    ],
+      attendanceRecords: [],
+      leaveRequests: [],
       locations: [
         {
           id: "loc1",
@@ -184,16 +108,7 @@ function ensureDB() {
           radiusMeter: 200
         }
       ],
-      announcements: [
-        {
-          id: "a1",
-          title: "SOP KETENTUAN ABSENSI TERBARU (Berlaku Mulai 1 Juli 2026)",
-          content: "Ketentuan Absensi Utama:\n1. Jam Kerja: Masuk 10.00 WIB, Pulang 20.00 WIB. Keterlambatan dihitung sejak pukul 10.11 WIB.\n2. Jatah Telat: 2x per bulan (bebas denda jika datang sebelum 13.00 WIB. Jika datang setelah 13.00, denda dihitung dari jam 10.00).\n3. Jatah Darurat Pribadi: 2x per 6 bulan (ban bocor, mogok, dll) dengan melampirkan bukti.\n4. Denda Keterlambatan: Mulai dari Rp5.000 s/d Rp50.000 (sesuai tabel denda). Setiap +30 menit setelah 13.30 didenda +Rp10.000.\n5. Absen Manual: Hanya untuk kondisi khusus, wajib sampai gudang dalam 2 jam setelah absen manual (melanggar ketentuan ini didenda denda kurir & potong jatah libur).\n6. Bonus Disiplin: Diberikan bulanan bila telat <= 2x, tidak melanggar absen manual, dan jatah libur terpakai <= 4 hari.",
-          startDate: "2026-07-01",
-          endDate: "2026-07-31",
-          createdBy: "admin"
-        }
-      ],
+      announcements: [],
       config: {
         branding: {
           name: "AbsenPro Nusantara",
@@ -389,6 +304,9 @@ app.post('/api/auth/login', (req, res) => {
   let user;
   if (isGoogleAuth) {
     user = db.users.find((u: any) => u.email.toLowerCase() === credential.toLowerCase());
+    if (user && user.disabled) {
+        return res.status(403).json({ error: 'Akun dinonaktifkan (Disabled).' });
+    }
     if (!user) {
       // Auto-register google users as pending if they don't exist
       const newId = 'u_' + Math.random().toString(36).substr(2, 9);
@@ -434,6 +352,33 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // 4. Pending Workers Management
+
+app.post('/api/users/delete', (req, res) => {
+  const { userId } = req.body;
+  const db = readDB();
+  const initialLength = db.users.length;
+  db.users = db.users.filter((u: any) => u.id !== userId);
+  if (db.users.length < initialLength) {
+    writeDB(db);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+});
+
+app.post('/api/users/disable', (req, res) => {
+  const { userId, disabled } = req.body;
+  const db = readDB();
+  const userIdx = db.users.findIndex((u: any) => u.id === userId);
+  if (userIdx !== -1) {
+    db.users[userIdx].disabled = disabled;
+    writeDB(db);
+    res.json({ success: true, user: db.users[userIdx] });
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+});
+
 app.get('/api/users/pending', (req, res) => {
   const db = readDB();
   const pendingUsers = db.users.filter((u: any) => u.status === 'pending');
@@ -1314,7 +1259,8 @@ app.post('/api/admin/factory-reset', (req, res) => {
         lastCheckInDevice: "Android-Device-SPV",
         currentLat: -6.2349,
         currentLng: 106.9896,
-        lastActiveAt: new Date().toISOString()
+        lastActiveAt: new Date().toISOString(),
+        disabled: true
       },
       {
         id: "u3",
@@ -1330,87 +1276,12 @@ app.post('/api/admin/factory-reset', (req, res) => {
         lastCheckInDevice: "Android-Budi-S21",
         currentLat: -6.2091,
         currentLng: 106.8461,
-        lastActiveAt: new Date().toISOString()
-      },
-      {
-        id: "u4",
-        username: "siti",
-        email: "siti@absensi.com",
-        password: "password",
-        role: "worker",
-        status: "pending",
-        division: "Operations",
-        position: "Staff Gudang",
-        photoUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
+        lastActiveAt: new Date().toISOString(),
+        disabled: true
       }
     ],
-    attendanceRecords: [
-      {
-        id: "r1",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-08",
-        checkInTime: "07:45:12",
-        checkInLat: -6.2089,
-        checkInLng: 106.8458,
-        checkInLocationName: "Kantor Pusat Jakarta",
-        checkOutTime: "17:05:30",
-        checkOutLat: -6.2088,
-        checkOutLng: 106.8456,
-        checkOutLocationName: "Kantor Pusat Jakarta",
-        isLate: false,
-        isEarlyOut: false,
-        isOutsideGeofence: false,
-        status: "approved",
-        fineAmount: 0,
-        bonusAmount: 25000,
-        note: "Hadir tepat waktu di area kantor"
-      },
-      {
-        id: "r2",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-09",
-        checkInTime: "08:15:44",
-        checkInLat: -6.2088,
-        checkInLng: 106.8456,
-        checkInLocationName: "Kantor Pusat Jakarta",
-        checkOutTime: "17:01:10",
-        checkOutLat: -6.2088,
-        checkOutLng: 106.8456,
-        checkOutLocationName: "Kantor Pusat Jakarta",
-        isLate: true,
-        isEarlyOut: false,
-        isOutsideGeofence: false,
-        status: "approved",
-        fineAmount: 50000,
-        bonusAmount: 0,
-        note: "Terlambat masuk 15 menit"
-      }
-    ],
-    leaveRequests: [
-      {
-        id: "l1",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-15",
-        status: "approved",
-        notes: "Menghadiri pernikahan keluarga"
-      },
-      {
-        id: "l2",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-20",
-        status: "pending",
-        notes: "Pemeriksaan kesehatan rutin"
-      }
-    ],
+    attendanceRecords: [],
+    leaveRequests: [],
     locations: [
       {
         id: "loc1",
@@ -1427,16 +1298,7 @@ app.post('/api/admin/factory-reset', (req, res) => {
         radiusMeter: 200
       }
     ],
-    announcements: [
-      {
-        id: "a1",
-        title: "SOP KETENTUAN ABSENSI TERBARU (Berlaku Mulai 1 Juli 2026)",
-        content: "Ketentuan Absensi Utama:\n1. Jam Kerja: Masuk 10.00 WIB, Pulang 20.00 WIB. Keterlambatan dihitung sejak pukul 10.11 WIB.\n2. Jatah Telat: 2x per bulan (bebas denda jika datang sebelum 13.00 WIB. Jika datang setelah 13.00, denda dihitung dari jam 10.00).\n3. Jatah Darurat Pribadi: 2x per 6 bulan (ban bocor, mogok, dll) dengan melampirkan bukti.\n4. Denda Keterlambatan: Mulai dari Rp5.000 s/d Rp50.000 (sesuai tabel denda). Setiap +30 menit setelah 13.30 didenda +Rp10.000.\n5. Absen Manual: Hanya untuk kondisi khusus, wajib sampai gudang dalam 2 jam setelah absen manual (melanggar ketentuan ini didenda denda kurir & potong jatah libur).\n6. Bonus Disiplin: Diberikan bulanan bila telat <= 2x, tidak melanggar absen manual, dan jatah libur terpakai <= 4 hari.",
-        startDate: "2026-07-01",
-        endDate: "2026-07-31",
-        createdBy: "admin"
-      }
-    ],
+    announcements: [],
     config: {
       branding: {
         name: "AbsenPro Nusantara",
