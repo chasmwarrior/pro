@@ -1,5 +1,22 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { io } from 'socket.io-client';
 
+
+
+
+
+import {
+  Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
+  CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
+  Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
+  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp,
+  Menu, ClipboardList, Megaphone, Map
+} from 'lucide-react';
+import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
+import MapView from './components/MapView';
+import CalendarView from './components/CalendarView';
+import ReportExport from './components/ReportExport';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 // API Helper for Capacitor
 const getApiBaseUrl = () => {
@@ -9,8 +26,9 @@ const getApiBaseUrl = () => {
     // @ts-ignore
     return import.meta.env.VITE_API_BASE_URL;
   }
-  // If we are in Capacitor and loading from file/capacitor schema, use the live domain
-  if (window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
+  // If we are in Capacitor and loading natively, use the live domain
+  // @ts-ignore
+  if (window?.Capacitor?.isNativePlatform?.() || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
     return 'https://warriorcarl.my.id';
   }
   // Default to relative (for standard web)
@@ -27,27 +45,35 @@ window.fetch = async (...args) => {
   return originalFetch(...args);
 };
 
-import {
-  Clock, User as UserIcon, Calendar as CalendarIcon, MapPin, Users, LogOut, Settings,
-  CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
-  Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
-  Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp
-} from 'lucide-react';
-import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
-import MapLibreView from './components/MapLibreView';
-import CalendarView from './components/CalendarView';
-import ReportExport from './components/ReportExport';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 export default function App() {
   // 1. App State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox'>('dashboard');
-  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset'>('radar');
+  const [currentUser, _setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('currentUser');
+    if (saved) {
+      try { return JSON.parse(saved); } catch(e) {}
+    }
+    return null;
+  });
+  const setCurrentUser = (user: User | null | ((prev: User | null) => User | null)) => {
+    _setCurrentUser((prev: User | null) => {
+        const nextUser = typeof user === 'function' ? (user as any)(prev) : user;
+        if (nextUser) {
+           localStorage.setItem('currentUser', JSON.stringify(nextUser));
+        } else {
+           localStorage.removeItem('currentUser');
+        }
+        return nextUser;
+    });
+  };
+  const [radarLiveUpdates, setRadarLiveUpdates] = useState<Record<string, { lat: number, lng: number }>>({});
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox' | 'history' | 'stats' | 'logs'>('dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs'>('radar');
   const [radarFilterDivision, setRadarFilterDivision] = useState<string>('all');
   const [radarFilterStatus, setRadarFilterStatus] = useState<string>('all');
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Custom Dialog Overlay State
   const [customDialog, setCustomDialog] = useState<{
@@ -157,6 +183,7 @@ export default function App() {
 
   // Auth Forms
   const [isLogin, setIsLogin] = useState(true);
+  // Modal state remains for potential future use or manual triggering but we remove the auto-popup
   const [showPermissionPromptModal, setShowPermissionPromptModal] = useState(false);
   const [showCheckInMapModal, setShowCheckInMapModal] = useState(false);
   const [mapModalAction, setMapModalAction] = useState<'checkin' | 'checkout' | null>(null);
@@ -217,7 +244,49 @@ export default function App() {
   const [isBulkApprovingAttendance, setIsBulkApprovingAttendance] = useState(false);
   const [leaveRemarks, setLeaveRemarks] = useState<Record<string, string>>({});
   const [isAutoRefreshRadar, setIsAutoRefreshRadar] = useState<boolean>(true);
+  const [radarRefreshInterval, setRadarRefreshInterval] = useState<number>(30000);
   const [isAnnouncementDismissed, setIsAnnouncementDismissed] = useState<boolean>(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [isDebugMode, setIsDebugMode] = useState<boolean>(false);
+
+  // Ref-based log capture to prevent infinite loops
+  const logsRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (!isDebugMode) return;
+
+    // Clear old logs when activated
+    logsRef.current = [];
+    setDebugLogs([]);
+
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    const addLog = (level: string, ...args: any[]) => {
+      try {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        logsRef.current = [`[${time}] [${level}] ${msg}`, ...logsRef.current].slice(0, 50);
+        // We only trigger state updates on explicit user interaction or interval, not synchronously
+      } catch(e) {}
+    };
+
+    console.log = (...args) => { originalLog(...args); addLog('INFO', ...args); };
+    console.error = (...args) => { originalError(...args); addLog('ERROR', ...args); };
+    console.warn = (...args) => { originalWarn(...args); addLog('WARN', ...args); };
+
+    // Update the visual logs state once every 2 seconds to avoid render thrashing
+    const interval = setInterval(() => {
+        setDebugLogs([...logsRef.current]);
+    }, 2000);
+
+    return () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+      clearInterval(interval);
+    };
+  }, [isDebugMode]);
   const [theme, setTheme] = useState<'blue' | 'emerald' | 'dark' | 'rose'>(() => {
     return (localStorage.getItem('app-theme') as 'blue' | 'emerald' | 'dark' | 'rose') || 'blue';
   });
@@ -349,16 +418,69 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Periodic automatic refresh of worker locations every 30 seconds
+
+  // Broadcast location if worker is actively checked in
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'supervisor') return;
+
+    // Check if worker is active
+    const todayDateStr = new Date().toLocaleDateString('en-CA');
+    const record = attendanceRecords.find(r => r.userId === currentUser.id && r.date === todayDateStr);
+
+    // Only track if they checked in, but have not checked out
+    if (record && !record.checkOutTime) {
+      const socket = io(apiBaseUrl || window.location.origin);
+      socket.emit('authenticate', { userId: currentUser.id });
+
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          socket.emit('workerLocationUpdate', {
+            userId: currentUser.id,
+            lat: latitude,
+            lng: longitude
+          });
+        },
+        (err) => console.error("Socket GPS Error:", err),
+        { enableHighAccuracy: true, maximumAge: 0 }
+      );
+
+      return () => {
+        navigator.geolocation.clearWatch(watchId);
+        socket.disconnect();
+      };
+    }
+  }, [currentUser, attendanceRecords]);
+
+  // Admin Radar Socket Listener
+  useEffect(() => {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'supervisor')) return;
+    if (adminSubTab !== 'radar') return;
+
+    const socket = io(apiBaseUrl || window.location.origin);
+    socket.emit('authenticate', { userId: currentUser.id });
+    socket.on('radarUpdate', (data: { userId: string, lat: number, lng: number }) => {
+      setRadarLiveUpdates(prev => ({
+        ...prev,
+        [data.userId]: { lat: data.lat, lng: data.lng }
+      }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [currentUser, adminSubTab]);
+
+  // Periodic automatic refresh of worker locations
   useEffect(() => {
     if (adminSubTab !== 'radar' || !isAutoRefreshRadar) return;
 
     const interval = setInterval(() => {
       fetchAllWorkers();
-    }, 30000);
+    }, radarRefreshInterval);
 
     return () => clearInterval(interval);
-  }, [adminSubTab, isAutoRefreshRadar]);
+  }, [adminSubTab, isAutoRefreshRadar, radarRefreshInterval]);
 
   // Track coordinates in background and manage global events
   useEffect(() => {
@@ -917,6 +1039,31 @@ export default function App() {
     return { success: res.ok, message: data.message || data.error || 'Gagal mengajukan libur', conflict: !!data.conflict };
   };
 
+  const handleCancelLeave = async (leaveId: string) => {
+    if (!currentUser) return { success: false, message: 'Tidak diijinkan' };
+
+    const res = await fetch('/api/leaves/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id, leaveId })
+    });
+    const data = await res.json();
+    fetchLeaveRequests();
+
+    if (res.ok) {
+      // Refresh current user info
+      const usersRes = await fetch('/api/users');
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        const updatedMe = users.find((u: any) => u.id === currentUser.id);
+        if (updatedMe) {
+          setCurrentUser(updatedMe);
+        }
+      }
+    }
+    return { success: res.ok, message: data.message || data.error || 'Gagal membatalkan libur' };
+  };
+
   // --------------------------------------------------------------------------
   // USER PROFILE ACTIONS
   // --------------------------------------------------------------------------
@@ -1287,7 +1434,8 @@ export default function App() {
           normalEndTime: "20:00:00",
           rateHour1: Number(settingsLemburHour1),
           rateHour2Onwards: Number(settingsLemburHour2Onwards)
-        }
+        },
+        rules: config?.rules || []
       })
     });
 
@@ -1391,8 +1539,23 @@ export default function App() {
       let status: 'working' | 'out_of_area' | 'offline' = 'offline';
       
       const record = attendanceRecords.find(r => r.userId === w.id && r.date === todayDateStr);
+
+      // We only allow tracking if they are actively working (checked in but not out).
       if (record && !record.checkOutTime) {
         status = 'working';
+
+        // Map over radarLiveUpdates (Socket.io) instead of mocking check-in or static positions
+        const livePos = radarLiveUpdates[w.id];
+        if (livePos) {
+          w.currentLat = livePos.lat;
+          w.currentLng = livePos.lng;
+        } else {
+          // Explicitly clear location if there's no live socket data to ensure accurate tracking
+          // The user explicitly requested to NOT use data from check-in.
+          w.currentLat = undefined;
+          w.currentLng = undefined;
+        }
+
         if (w.currentLat && w.currentLng) {
           let isInside = false;
           locations.forEach(loc => {
@@ -1413,10 +1576,14 @@ export default function App() {
         } else {
            status = 'offline';
         }
+      } else {
+        // Not actively working, wipe location to prevent tracking out of hours
+        w.currentLat = undefined;
+        w.currentLng = undefined;
       }
       return { ...w, todayStatus: status };
     });
-  }, [allWorkers, attendanceRecords, locations, todayDateStr]);
+  }, [allWorkers, attendanceRecords, locations, todayDateStr, radarLiveUpdates]);
 
   const filteredRadarWorkers = React.useMemo(() => {
     return radarWorkersWithStatus.filter(w => {
@@ -1517,84 +1684,7 @@ const monthlyKPIData = React.useMemo(() => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
       
-      {/* --------------------------------------------------------------------------
-         HEADER BAR
-         -------------------------------------------------------------------------- */}
-      <header className="border-b border-slate-200 bg-white px-4 py-1.5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 sticky top-0 z-40 shadow-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner">
-            {config?.branding.logoUrl ? (
-              <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
-            ) : (
-              <Landmark className="w-full h-full text-blue-600" />
-            )}
-          </div>
-          <div>
-            <h1 className="font-display font-bold text-sm text-slate-900 tracking-tight flex items-center gap-1">
-              <span>{config?.branding.name || 'AbsenPro Nusantara'}</span>
-              <span className="text-[8px] bg-blue-50 text-blue-700 border border-blue-100 font-mono py-0.2 px-1 rounded-full font-bold">PROFESIONAL</span>
-            </h1>
-            <p className="text-[10px] text-slate-400 font-mono leading-none">Sistem Kehadiran Geofence & Liveness Terenkripsi</p>
-          </div>
-        </div>
 
-        {currentUser && (
-          <div className="flex flex-wrap items-center gap-3 text-slate-800">
-            {/* Server synchronized real-time ticking clock */}
-            <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-0.5 flex items-center gap-2 shadow-inner">
-              <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-              <div className="text-right">
-                <span className="font-mono font-bold text-xs text-blue-600 block leading-tight">
-                  {serverTime.toTimeString().split(' ')[0]}
-                </span>
-                <span className="text-[8px] text-slate-400 block leading-none">
-                  {serverTime.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} (WIB)
-                </span>
-              </div>
-            </div>
-
-            {/* Theme Selector Widget */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 shrink-0 shadow-inner">
-              <Palette className="w-3.5 h-3.5 text-blue-600 ml-1 shrink-0" />
-              <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as any)}
-                className="bg-transparent border-none text-[10px] font-bold text-slate-700 outline-none pr-1 cursor-pointer"
-                title="Pilih Tema Tampilan"
-              >
-                <option value="blue">🔵 Biru</option>
-                <option value="emerald">🟢 Hijau</option>
-                <option value="rose">🔴 Mawar</option>
-                <option value="dark">⚫ Slate</option>
-              </select>
-            </div>
-
-            {/* Profile Dropdown Badge */}
-            <div className="flex items-center gap-2 bg-slate-50 p-1 pr-3 border border-slate-200 rounded-full">
-              <img
-                src={currentUser.photoUrl}
-                alt={currentUser.username}
-                className="w-7 h-7 rounded-full object-cover border border-slate-200 bg-white"
-                referrerPolicy="no-referrer"
-              />
-              <div className="text-left">
-                <p className="text-xs font-bold text-slate-800 capitalize leading-tight">{currentUser.username}</p>
-                <span className="text-[8px] font-mono text-blue-600 uppercase tracking-wide px-1 py-0.2 rounded bg-blue-50 border border-blue-100/50">
-                  {currentUser.role}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="ml-2 p-1 hover:bg-rose-50 rounded-full text-slate-400 hover:text-rose-500 transition cursor-pointer"
-                title="Keluar dari Akun"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </header>
 
       {/* --------------------------------------------------------------------------
          ANNOUNCEMENT BAR FOR WORKERS
@@ -1796,118 +1886,186 @@ const monthlyKPIData = React.useMemo(() => {
               </form>
             )}
 
-            {/* Predefined Accounts Assistance Card */}
-            <div className="mt-8 border-t border-slate-200 pt-5 text-left bg-slate-50 -mx-8 -mb-8 p-6">
-              <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
-                <span>Akun Uji Coba Demo (Instan):</span>
-              </h5>
-              <div className="grid grid-cols-2 gap-3 text-[10px] font-mono text-slate-600">
-                <div className="p-2 border border-slate-200 bg-white rounded-lg">
-                  <span className="text-blue-600 font-semibold font-sans block">⚙️ Akun Admin</span>
-                  <p className="mt-1">ID: <b className="text-slate-800">admin@absensi.com</b></p>
-                  <p>Pass: <b className="text-slate-800">admin</b></p>
-                </div>
-                <div className="p-2 border border-slate-200 bg-white rounded-lg">
-                  <span className="text-blue-600 font-semibold font-sans block">👤 Akun Worker (Budi)</span>
-                  <p className="mt-1">ID: <b className="text-slate-800">budi@absensi.com</b></p>
-                  <p>Pass: <b className="text-slate-800">password</b></p>
-                </div>
-              </div>
-            </div>
           </div>
         </main>
       )}
+
 
       {/* --------------------------------------------------------------------------
          MAIN LAYOUT (LOGGED IN USER CONSOLE)
          -------------------------------------------------------------------------- */}
       {currentUser && (
-        <div className="flex-1 flex flex-col md:flex-row">
-          
-          {/* --------------------------------------------------------------------------
-             NAVIGATION SIDEBAR
-             -------------------------------------------------------------------------- */}
-          <nav className={`w-full ${isSidebarCollapsed ? 'md:w-16 md:p-1.5' : 'md:w-16 lg:w-56 md:p-1.5 lg:p-3'} border-b md:border-b-0 md:border-r border-slate-800 bg-slate-900 flex flex-row md:flex-col gap-1.5 shrink-0 md:h-[calc(100vh-57px)] sticky top-[57px] z-30 overflow-x-auto md:overflow-x-visible custom-scrollbar transition-all duration-300 ease-in-out`}>
-            
-            {/* Sidebar Collapse Toggle Button */}
-            <div className="hidden md:flex justify-end p-1">
-              <button
-                type="button"
-                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/80 transition cursor-pointer"
-                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-              >
-                {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+        <div className="flex-1 flex flex-col h-[calc(100vh)] overflow-hidden relative">
 
-            {/* Sidebar headers */}
-            <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
-              Panel Navigasi
+          {/* MOBILE TOP HEADER */}
+          <header className="md:hidden flex items-center justify-between bg-slate-900 border-b border-slate-800 p-3 z-40 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner shrink-0">
+                {config?.branding.logoUrl ? (
+                  <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
+                ) : (
+                  <Landmark className="w-full h-full text-blue-500" />
+                )}
+              </div>
+              <div>
+                <h1 className="font-display font-bold text-sm text-white tracking-tight leading-tight">
+                  {config?.branding.name || 'AbsenPro'}
+                </h1>
+              </div>
             </div>
-
             <button
               type="button"
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800 focus:outline-none"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          </header>
+
+          <div className="flex-1 flex overflow-hidden relative">
+
+          {/* MOBILE SIDEBAR BACKDROP */}
+          {isMobileSidebarOpen && (
+            <div
+              className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            />
+          )}
+
+          {/* --------------------------------------------------------------------------
+             LEFT NAVIGATION SIDEBAR
+             -------------------------------------------------------------------------- */}
+          <nav
+            className={`
+              fixed md:static inset-y-0 left-0 transform ${
+                isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+              } md:translate-x-0 transition-transform duration-300 ease-in-out
+              ${isSidebarCollapsed ? 'md:w-16' : 'md:w-64'}
+              w-[280px] bg-slate-900 border-r border-slate-800 flex flex-col p-3 shrink-0 text-slate-300 z-50 overflow-y-auto shadow-2xl md:shadow-none
+            `}
+          >
+            {/* Header info inside sidebar */}
+            <div className="flex flex-col gap-4 mb-6">
+               <div className="flex items-center gap-3">
+                 <div className={`${isSidebarCollapsed ? 'mx-auto' : ''} w-8 h-8 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/20 flex items-center justify-center p-1 shadow-inner shrink-0 hidden md:flex`}>
+                   {config?.branding.logoUrl ? (
+                     <img src={config.branding.logoUrl} alt="Logo App" className="w-full h-full object-contain rounded-md" referrerPolicy="no-referrer" />
+                   ) : (
+                     <Landmark className="w-full h-full text-blue-500" />
+                   )}
+                 </div>
+                 <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden md:block'} flex-1 overflow-hidden`}>
+                   <h1 className="font-display font-bold text-sm text-white tracking-tight flex items-center gap-1 truncate">
+                     <span>{config?.branding.name || 'AbsenPro'}</span>
+                   </h1>
+                   <p className="text-[9px] text-slate-400 font-mono leading-none truncate">Geofence & Liveness</p>
+                 </div>
+
+                 {/* Mobile Close Button */}
+                 <button
+                    type="button"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition md:hidden shrink-0 ml-auto"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
+                 <button
+                    type="button"
+                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition hidden md:block shrink-0 ml-auto"
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+               </div>
+
+               <div className={`${isSidebarCollapsed ? 'hidden' : 'flex'} bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/50 items-center gap-3`}>
+                  <img
+                    src={currentUser.photoUrl}
+                    alt={currentUser.username}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-slate-600 bg-slate-800 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-white capitalize leading-tight truncate">{currentUser.username}</p>
+                    <span className="text-[9px] font-mono text-blue-400 uppercase tracking-wide inline-block mt-1">
+                      {currentUser.role}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="p-2 hover:bg-rose-500/20 rounded-full text-slate-400 hover:text-rose-400 transition cursor-pointer shrink-0"
+                    title="Keluar dari Akun"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+               </div>
+            </div>
+
+            {/* Time widget removed from sidebar */}
+            <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar">
+<button
+              type="button"
+              onClick={() => { setActiveTab('dashboard'); setIsMobileSidebarOpen(false); }}
               title="Dashboard Kerja"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'dashboard'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <Activity className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Dashboard Kerja</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Dashboard Kerja</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('history')}
+              onClick={() => { setActiveTab('history'); setIsMobileSidebarOpen(false); }}
               title="Riwayat"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'history'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <History className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Riwayat</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Riwayat</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('stats')}
+              onClick={() => { setActiveTab('stats'); setIsMobileSidebarOpen(false); }}
               title="Statistik"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'stats'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <TrendingUp className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Statistik</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Statistik</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('calendar')}
+              onClick={() => { setActiveTab('calendar'); setIsMobileSidebarOpen(false); }}
               title="Pengajuan Libur"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'calendar'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <CalendarIcon className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Pengajuan Libur</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Pengajuan Libur</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveTab('inbox')}
+              onClick={() => { setActiveTab('inbox'); setIsMobileSidebarOpen(false); }}
               title="Inbox Pengumuman"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
                 activeTab === 'inbox'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
@@ -1915,7 +2073,7 @@ const monthlyKPIData = React.useMemo(() => {
             >
               <div className="flex items-center gap-2.5">
                 <Bell className="w-4 h-4 shrink-0" />
-                <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Inbox Pengumuman</span>
+                <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Inbox Pengumuman</span>
               </div>
               {activeAnnouncements.length > 0 && (
                 <span className="bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 leading-none">
@@ -1926,23 +2084,24 @@ const monthlyKPIData = React.useMemo(() => {
 
             <button
               type="button"
-              onClick={() => setActiveTab('profile')}
+              onClick={() => { setActiveTab('profile'); setIsMobileSidebarOpen(false); }}
               title="Profil & Password"
-              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+              className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
                 activeTab === 'profile'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
                   : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
               }`}
             >
               <UserIcon className="w-4 h-4 shrink-0" />
-              <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Profil & Password</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Profil & Password</span>
             </button>
+
 
             {/* Privileged Admin Menu options */}
             {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && (
               <>
-                <div className="hidden md:block border-t border-slate-800 my-2"></div>
-                <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
+                <div className="border-t border-slate-800 my-2"></div>
+                <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
                   Sistem Admin
                 </div>
 
@@ -1950,23 +2109,270 @@ const monthlyKPIData = React.useMemo(() => {
                   type="button"
                   onClick={() => {
                     setActiveTab('admin');
-                    setAdminSubTab('radar');
+                    setAdminSubTab('users');
+                    setIsMobileSidebarOpen(false);
                   }}
-                  title="Konsol Admin"
-                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-center lg:justify-start px-2 lg:px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
-                    activeTab === 'admin'
+                  title="Kelola Pegawai"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'users'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Users className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Kelola Pegawai</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('demo');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Info Akun Demo"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'demo'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <HelpCircle className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Info Akun Demo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('radar');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Radar Pekerja"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'radar'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Map className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Radar Pekerja</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('approvals');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Persetujuan"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'approvals'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Persetujuan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('export');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Laporan Absensi"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'export'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <ClipboardList className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Laporan Absensi</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('locations');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Kelola Geofence"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'locations'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Kelola Geofence</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('announcements');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Pengumuman"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'announcements'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Megaphone className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Pengumuman</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('unbind');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Unbind Perangkat"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'unbind'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Unlock className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Unbind Perangkat</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('settings');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Branding & Denda"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'settings'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   <Settings className="w-4 h-4 shrink-0" />
-                  <span className={isSidebarCollapsed ? 'hidden' : 'inline md:hidden lg:inline'}>Konsol Admin</span>
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Branding & Denda</span>
                 </button>
+
+                                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('reset');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Reset Pabrik"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer text-rose-500 hover:bg-rose-500/20 hover:text-rose-400 ${
+                    activeTab === 'admin' && adminSubTab === 'reset'
+                      ? 'bg-rose-600 text-white shadow-md hover:text-white'
+                      : ''
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Reset Pabrik</span>
+                </button>
+
+
               </>
             )}
 
+
+            </div>
+
+
+                {isDebugMode && (
+                  <>
+                    <div className="border-t border-slate-800 my-2"></div>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('logs'); setIsMobileSidebarOpen(false); }}
+                      title="Sistem Log"
+                      className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                        activeTab === 'logs'
+                          ? 'bg-amber-600 text-white shadow-md shadow-amber-600/10'
+                          : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4 shrink-0 text-amber-500" />
+                      <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Sistem Log (Debug)</span>
+                    </button>
+                  </>
+                )}
+            <div className="border-t border-slate-800 my-2"></div>
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono`}>
+              Akses Perangkat
+            </div>
+
+            {/* Sidebar Toggle Permissions */}
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} px-3 py-2 bg-slate-800/30 rounded-lg border border-slate-700/50 space-y-3`}>
+              <div className="flex justify-between items-center text-[10px]">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>GPS / Lokasi</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+    if (permissionStates.gps === 'granted') {
+      setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+    } else {
+      requestGPSPermission();
+    }
+  }}
+                  className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    permissionStates.gps === 'granted' ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    permissionStates.gps === 'granted' ? 'translate-x-3' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+
+              <div className="flex justify-between items-center text-[10px]">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <Camera className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Kamera</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+    if (permissionStates.camera === 'granted') {
+      setPermissionStates(prev => ({ ...prev, camera: 'denied' }));
+      if (videoRef.current && videoRef.current.srcObject) {
+         const tracks = videoRef.current.srcObject.getTracks();
+         tracks.forEach(track => track.stop());
+         videoRef.current.srcObject = null;
+      }
+    } else {
+      requestCameraPermission();
+    }
+  }}
+                  className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    permissionStates.camera === 'granted' ? 'bg-blue-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    permissionStates.camera === 'granted' ? 'translate-x-3' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+            </div>
             {/* Quick user details inside sidebar */}
-            <div className={`${isSidebarCollapsed ? 'hidden' : 'hidden lg:block'} mt-auto bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg text-xs font-mono`}>
+            <div className={`${isSidebarCollapsed ? 'hidden' : 'block'} mt-auto bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg text-xs font-mono`}>
               <span className="text-[8px] text-slate-500 font-bold block mb-0.5">BOUND DEVICE ID:</span>
               <p className="text-slate-400 truncate text-[10px]" title={deviceFingerprint}>{deviceFingerprint}</p>
             </div>
@@ -1975,13 +2381,29 @@ const monthlyKPIData = React.useMemo(() => {
           {/* --------------------------------------------------------------------------
              MAIN SCROLLABLE CONTENT CANVAS
              -------------------------------------------------------------------------- */}
-          <main className="flex-1 p-4 overflow-y-auto max-w-full">
+          <main className="flex-1 p-4 overflow-y-auto max-w-full relative w-full">
             
             {/* =========================================================================
                TAB: WORKER DASHBOARD
                ========================================================================= */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fade-in">
+
+                {/* Clock on Dashboard */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4 text-slate-800">
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
+                    <Clock className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block font-mono">Waktu Sistem Server</span>
+                    <p className="font-display font-bold text-2xl text-slate-900 mt-0.5 leading-tight">
+                      {serverTime.toTimeString().split(' ')[0]}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {serverTime.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
 
                                 {/* Geofence / Check-In Live Module */}
                 <div className="flex flex-col gap-6">
@@ -1991,40 +2413,47 @@ const monthlyKPIData = React.useMemo(() => {
                   {/* Left Column: Tracking Status / Controls */}
                   <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6 shadow-sm text-slate-800">
                     <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Pencatatan Presensi</span>
-                      <h3 className="font-display font-bold text-lg text-slate-900 mt-1">Presensi Hari Ini</h3>
-                      <p className="text-xs text-slate-500 mt-1 leading-normal">
-                        Geofence membatasi radius absensi masuk ke kantor/gudang. GPS live perangkat digunakan untuk validasi.
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block font-mono">Status Sistem Presensi</span>
+                      <h3 className="font-display font-black text-2xl text-slate-800 tracking-tight mt-1">Presensi Hari Ini</h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-[85%]">
+                        Geofence membatasi radius absensi. Sistem menggunakan GPS & liveness wajah untuk keamanan ganda.
                       </p>
                     </div>
 
-                    {/* Geolocation Loading Indicator */}
                     {isLocating && (
-                      <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-3 text-xs text-blue-600">
-                        <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                        <span>Sedang melacak koordinat GPS perangkat...</span>
+                      <div className="bg-blue-50/80 border border-blue-100 p-4 rounded-2xl flex items-center gap-3 text-xs text-blue-600 shadow-inner">
+                        <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                        <span className="font-medium">Menyinkronkan satelit GPS perangkat...</span>
                       </div>
                     )}
 
-                    {/* Coordinates details */}
                     {!isLocating && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3.5 font-mono text-xs text-slate-600">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Koordinat Anda:</span>
-                          <span className="text-blue-600 font-bold">
-                            {deviceLat ? `${deviceLat.toFixed(5)}, ${deviceLng?.toFixed(5)}` : 'Sinyal Tidak Terdeteksi'}
+                      <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4 font-mono text-xs shadow-xl relative overflow-hidden group">
+
+                        <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4 group-hover:scale-110 transition-transform duration-500">
+                          <MapPin className="w-32 h-32 text-white" />
+                        </div>
+
+                        <div className="relative z-10 flex justify-between items-center">
+                          <span className="text-slate-400 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-400" /> Koordinat Anda:</span>
+                          <span className="text-blue-400 font-bold bg-blue-500/10 px-2 py-1 rounded-lg">
+                            {deviceLat ? `${deviceLat.toFixed(5)}, ${deviceLng?.toFixed(5)}` : 'Sinyal Hilang'}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center border-t border-slate-200/50 pt-2.5">
-                          <span className="text-slate-400">Penempatan Kerja:</span>
-                          <span className="text-slate-700 font-semibold">
-                            {currentUser.division} ({currentUser.position})
+                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
+                          <span className="text-slate-400 flex items-center gap-2"><Building2 className="w-4 h-4 text-emerald-400" /> Penempatan Kerja:</span>
+                          <span className="text-slate-200 font-semibold text-right flex flex-col items-end">
+                            {currentUser.division} <span className="text-[10px] text-slate-400">{currentUser.position}</span>
                           </span>
                         </div>
-                        <div className="flex justify-between items-center border-t border-slate-200/50 pt-2.5">
-                          <span className="text-slate-400">Kunci Perangkat:</span>
-                          <span className="text-slate-700 font-semibold">
-                            {currentUser.lastCheckInDevice ? '🔒 Terkunci' : '🔓 Belum Dikunci'}
+                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
+                          <span className="text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-amber-400" /> Kunci Perangkat:</span>
+                          <span className="text-slate-200 font-semibold">
+                            {currentUser.lastCheckInDevice ? (
+                               <span className="flex items-center gap-1.5 text-emerald-400"><ShieldCheck className="w-4 h-4"/> Terkunci</span>
+                            ) : (
+                               <span className="flex items-center gap-1.5 text-amber-400"><Unlock className="w-4 h-4"/> Belum Dikunci</span>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -2047,10 +2476,10 @@ const monthlyKPIData = React.useMemo(() => {
                           }}
                           id="btn-check-in"
                           disabled={isLocating}
-                          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
+                          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-sm py-4 rounded-2xl shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_25px_rgba(37,99,235,0.5)] transition-all duration-300 transform hover:-translate-y-1 active:scale-[0.98] flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>Mulai Check-In Kerja</span>
+                          <span>Mulai Masuk Kerja</span>
                         </button>
                       ) : todayRecord.isManualCheckIn && !todayRecord.arrivalTimeAtWarehouse ? (
                         /* Manual Check-In but not yet confirmed arrival at Warehouse */
@@ -2125,7 +2554,7 @@ const monthlyKPIData = React.useMemo(() => {
                           className="w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-2.5 text-xs cursor-pointer"
                         >
                           <LogOut className="w-4 h-4" />
-                          <span>Lakukan Check-Out (Pulang)</span>
+                          <span>Selesai Kerja (Check-Out)</span>
                         </button>
                       ) : (
                         <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 rounded-xl text-center text-xs space-y-1">
@@ -2239,60 +2668,7 @@ const monthlyKPIData = React.useMemo(() => {
                               {/* ----------------------------------------------------------------------
                    DEVICE PERMISSIONS BANNER / COMPONENT
                    ---------------------------------------------------------------------- */}
-                <div className="bg-gradient-to-r from-slate-50 to-blue-50/30 border border-slate-200 rounded-xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                  <div className="space-y-1">
-                    <h4 className="font-display font-bold text-xs text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Manajer Hak Akses & Keamanan Perangkat</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Aplikasi ini memerlukan beberapa izin perangkat agar fitur absensi geofence, deteksi liveness wajah, dan unggahan foto profil dapat berfungsi secara legal dan aman.
-                    </p>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2.5 items-center">
-                    {/* GPS Permission Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <MapPin className={`w-3.5 h-3.5 ${permissionStates.gps === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      <span className="font-medium text-slate-600">GPS/Lokasi:</span>
-                      {permissionStates.gps === 'granted' ? (
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={requestGPSPermission}
-                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
-                        >
-                          Minta Izin
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Camera Permission Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <Camera className={`w-3.5 h-3.5 ${permissionStates.camera === 'granted' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                      <span className="font-medium text-slate-600">Kamera:</span>
-                      {permissionStates.camera === 'granted' ? (
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Aktif</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={requestCameraPermission}
-                          className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition text-[10px]"
-                        >
-                          Minta Izin
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Storage / Gallery Pill */}
-                    <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[11px] shadow-sm">
-                      <Upload className={`w-3.5 h-3.5 text-emerald-500`} />
-                      <span className="font-medium text-slate-600">Galeri/File:</span>
-                      <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Tersedia</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -2603,7 +2979,7 @@ const monthlyKPIData = React.useMemo(() => {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div>
                     <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider font-mono">Penjadwalan Libur</span>
-                    <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Sistem Manajemen Cuti & Jatah Libur</h2>
+                    <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Sistem Manajemen Libur & Jatah Libur</h2>
                     <p className="text-xs text-slate-500 mt-1">
                       Kunci tanggal libur Anda untuk mengunci slot jadwal kerja tim. Pengajuan konflik otomatis masuk antrean Supervisor.
                     </p>
@@ -2614,6 +2990,7 @@ const monthlyKPIData = React.useMemo(() => {
                   currentUser={currentUser}
                   leaveRequests={leaveRequests}
                   onApplyLeave={handleApplyLeave}
+                  onCancelLeave={handleCancelLeave}
                 />
               </div>
             )}
@@ -2712,6 +3089,25 @@ const monthlyKPIData = React.useMemo(() => {
                     </div>
                   )}
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 text-slate-800 border-t border-slate-200 pt-6">
+                    {/* Debug Toggle */}
+                    <div className="space-y-4 col-span-1 md:col-span-2">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-blue-500" />
+                        <span>Sistem Debug & Diagnostik</span>
+                      </h4>
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+                        <div>
+                           <p className="text-[11px] font-bold text-slate-800">Aktifkan Mode Debug</p>
+                           <p className="text-[10px] text-slate-500">Merekam log internal aplikasi untuk dianalisa saat terjadi error (akan memunculkan tab Log baru).</p>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 border border-slate-200 rounded-lg shadow-sm">
+                          <input type="checkbox" checked={isDebugMode} onChange={(e) => setIsDebugMode(e.target.checked)} className="w-3.5 h-3.5" />
+                          <span className="text-[10px] font-bold text-slate-600">{isDebugMode ? 'ON' : 'OFF'}</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 text-slate-800">
                     {/* Change profile Photo URL */}
                     <div className="space-y-4">
@@ -2795,124 +3191,55 @@ const monthlyKPIData = React.useMemo(() => {
             )}
 
             {/* =========================================================================
+               TAB: LOGS (DEBUG)
+               ========================================================================= */}
+            {activeTab === 'logs' && isDebugMode && (
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm animate-fade-in text-slate-800 flex flex-col h-[500px]">
+                <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
+                  <div>
+                    <h4 className="font-display font-bold text-sm text-slate-900 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-amber-600" />
+                      Log Debugger Sistem
+                    </h4>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Memantau aktivitas internal aplikasi dan merespons error.</p>
+                  </div>
+
+                  <div className="flex gap-2 items-center">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(debugLogs.join('\n'))}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm cursor-pointer"
+                    >
+                      Copy Logs
+                    </button>
+                    <button
+                      onClick={() => {
+                        logsRef.current = [];
+                        setDebugLogs([]);
+                      }}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-bold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 p-4 bg-slate-900 text-emerald-400 font-mono text-[10px] overflow-y-auto custom-scrollbar whitespace-pre-wrap break-all leading-relaxed">
+                  {debugLogs.length > 0 ? debugLogs.map((log, i) => (
+                    <div key={i} className="mb-1 border-b border-slate-800/50 pb-1">{log}</div>
+                  )) : (
+                    <p className="text-slate-500 italic text-center mt-10">Menunggu log aktivitas baru...</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================================
                TAB: ADMINISTRATIVE CONSOLE (ADMIN/SUPERVISOR GATES)
                ========================================================================= */}
             {activeTab === 'admin' && (
               <div className="space-y-6 animate-fade-in">
-                <div className="bg-gradient-to-r from-blue-500/10 via-slate-50 to-blue-500/5 border border-blue-100 rounded-xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 text-slate-800">
-                  <div>
-                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest block font-mono">Administrative Control Panel</span>
-                    <h2 className="font-display font-bold text-2xl text-slate-900 mt-1">Konsol Manajemen Platform</h2>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Otorisasi persetujuan, pemantauan radar pekerja realtime, konfigurasi geofence, dan ekspor pelaporan resmi.
-                    </p>
-                  </div>
-                  <span className="bg-blue-100 text-blue-700 border border-blue-200 font-mono text-[11px] font-bold py-1 px-3.5 rounded-full uppercase">
-                    ROLE: {currentUser.role}
-                  </span>
-                </div>
 
-                {/* Sub-navigation Controls tabs */}
-                <div className="flex flex-wrap border border-slate-200 gap-1.5 p-1 bg-slate-100 rounded-xl">
-                  
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('radar')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'radar' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Compass className="w-4 h-4" />
-                    <span>Radar GPS Realtime</span>
-                  </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('approvals')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 relative cursor-pointer ${
-                      adminSubTab === 'approvals' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <ShieldAlert className="w-4 h-4" />
-                    <span>Persetujuan</span>
-                    {(pendingWorkers.length > 0 || attendanceRecords.filter(r => r.status === 'pending').length > 0) && (
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 border border-white rounded-full"></span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('locations')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'locations' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Building2 className="w-4 h-4" />
-                    <span>Kelola Geofence Kantor</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('unbind')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'unbind' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Unlock className="w-4 h-4" />
-                    <span>Unbind Perangkat</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('announcements')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'announcements' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Bell className="w-4 h-4" />
-                    <span>Pengumuman</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('settings')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'settings' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Settings className="w-4 h-4" />
-                    <span>Branding & Denda</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminSubTab('export')}
-                    className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                      adminSubTab === 'export' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>Ekspor Laporan</span>
-                  </button>
-
-                  {/* Factory Reset only available for true Admins */}
-                  {currentUser.role === 'admin' && (
-                    <button
-                      type="button"
-                      onClick={() => setAdminSubTab('reset')}
-                      className={`py-2 px-4 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                        adminSubTab === 'reset' ? 'bg-rose-50 text-rose-700 border border-rose-200 shadow-sm' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Reset Pabrik</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* ----------------------------------------------------------------------
-                   SUBTAB: RADAR REALTIME MAP TRACKER
-                   ---------------------------------------------------------------------- */}
                 {adminSubTab === 'radar' && (
                   <div className="space-y-6 animate-fade-in">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2950,25 +3277,38 @@ const monthlyKPIData = React.useMemo(() => {
                           </select>
                         </div>
                         {/* Auto-Refresh Toggle */}
-                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 shadow-xs">
-                          <div className="flex flex-col">
+                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-xs">
+                          <div className="flex flex-col gap-1">
                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono leading-none">Auto Refresh</span>
-                            <span className="text-xs font-bold text-slate-700 mt-1">{isAutoRefreshRadar ? "Aktif (30s)" : "Nonaktif"}</span>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={radarRefreshInterval}
+                                onChange={(e) => setRadarRefreshInterval(Number(e.target.value))}
+                                disabled={!isAutoRefreshRadar}
+                                className="text-xs bg-white border border-slate-200 rounded px-1 text-slate-700 disabled:opacity-50"
+                              >
+                                <option value="10000">10s</option>
+                                <option value="30000">30s</option>
+                                <option value="60000">1m</option>
+                                <option value="300000">5m</option>
+                                <option value="3600000">1j</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setIsAutoRefreshRadar(!isAutoRefreshRadar)}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                  isAutoRefreshRadar ? 'bg-blue-600' : 'bg-slate-300'
+                                }`}
+                                aria-label="Toggle Auto Refresh Radar"
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                    isAutoRefreshRadar ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsAutoRefreshRadar(!isAutoRefreshRadar)}
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              isAutoRefreshRadar ? 'bg-blue-600' : 'bg-slate-300'
-                            }`}
-                            aria-label="Toggle Auto Refresh Radar"
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                isAutoRefreshRadar ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
                         </div>
 
                         <button
@@ -2998,7 +3338,7 @@ const monthlyKPIData = React.useMemo(() => {
                     </div>
                     
                     <div className="h-[450px] rounded-2xl overflow-hidden border border-slate-200 relative">
-                      <MapLibreView
+                      <MapView
                         userLat={null}
                         userLng={null}
                         locations={locations}
@@ -3356,7 +3696,7 @@ const monthlyKPIData = React.useMemo(() => {
                     {/* 3. Leave Requests Approvals with conflict indicator */}
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-                        <h4 className="font-display font-bold text-sm text-slate-800">Antrean Persetujuan Libur / Cuti</h4>
+                        <h4 className="font-display font-bold text-sm text-slate-800">Antrean Persetujuan Libur / Libur</h4>
                         <p className="text-xs text-slate-500 mt-0.5">Memantau libur terjadwal. Konflik divisi yang sama ditandai otomatis untuk tinjauan administrator.</p>
                       </div>
 
@@ -3796,101 +4136,73 @@ const monthlyKPIData = React.useMemo(() => {
                         </div>
                       </div>
 
-                      {/* Section: Fines & Bonuses */}
-                      <div className="space-y-4">
-                        <h5 className="text-xs font-bold text-blue-600 uppercase tracking-widest font-mono flex items-center gap-1.5">
-                          <Landmark className="w-4 h-4" />
-                          <span>Parameter Keuangan Absensi</span>
-                        </h5>
+                                              {/* Section: Fines & Bonuses (Removed legacy inputs) */}
+                        <div className="space-y-4">
+                          <h5 className="text-xs font-bold text-blue-600 uppercase tracking-widest font-mono flex items-center gap-1.5">
+                            <Landmark className="w-4 h-4" />
+                            <span>Parameter Keuangan Absensi (Aturan Dinamis)</span>
+                          </h5>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="space-y-1.5">
-                            <label htmlFor="set-fines" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Denda Telat (IDR)</label>
-                            <input
-                              id="set-fines"
-                              required
-                              type="number"
-                              value={settingsDenda}
-                              onChange={(e) => setSettingsDenda(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label htmlFor="set-bonus-tepat" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bonus Tepat Waktu (IDR)</label>
-                            <input
-                              id="set-bonus-tepat"
-                              required
-                              type="number"
-                              value={settingsBonusTepat}
-                              onChange={(e) => setSettingsBonusTepat(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label htmlFor="set-bonus-disiplin" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disiplin Bulanan (IDR)</label>
-                            <input
-                              id="set-bonus-disiplin"
-                              required
-                              type="number"
-                              value={settingsBonusDisiplin}
-                              onChange={(e) => setSettingsBonusDisiplin(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                            />
-                          </div>
-                        </div>
+                          <p className="text-[11px] text-slate-500">Gunakan Aturan Dinamis di bawah ini untuk mengatur denda, bonus, dan lembur secara fleksibel berdasarkan jam.</p>
 
-                        {/* Section: Dynamic Overtime Settings */}
-                        <div className="pt-2">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Parameter Lemburan Berjenjang (IDR / Jam)</label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label htmlFor="set-lembur-h1" className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Lemburan Jam Ke-1 (IDR/jam)</label>
-                              <input
-                                id="set-lembur-h1"
-                                required
-                                type="number"
-                                value={settingsLemburHour1}
-                                onChange={(e) => setSettingsLemburHour1(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label htmlFor="set-lembur-h2" className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Lemburan Jam Ke-2 dst (IDR/jam)</label>
-                              <input
-                                id="set-lembur-h2"
-                                required
-                                type="number"
-                                value={settingsLemburHour2Onwards}
-                                onChange={(e) => setSettingsLemburHour2Onwards(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
-                              />
+                          {/* Dynamic Rules Engine UI */}
+                          <div className="pt-4 border-t border-slate-100 mt-4">
+                            <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-3">Aturan Jam & Insentif Kustom</h6>
+                            <div className="space-y-3">
+                              {config?.rules?.map((rule, idx) => (
+                                <div key={rule.id} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-lg border border-slate-200 text-[10px]">
+                                  <input type="text" value={rule.name} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].name = e.target.value;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="flex-1 bg-white border border-slate-200 px-2 py-1 rounded" placeholder="Nama Aturan" />
+
+                                  <input type="time" value={rule.startTime} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].startTime = e.target.value;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
+
+                                  <span className="text-slate-400">-</span>
+
+                                  <input type="time" value={rule.endTime} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].endTime = e.target.value;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-20 bg-white border border-slate-200 px-2 py-1 rounded" />
+
+                                  <select value={rule.type} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].type = e.target.value as any;
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded">
+                                    <option value="denda">Denda (-)</option>
+                                    <option value="bonus">Bonus (+)</option>
+                                    <option value="lembur">Lembur (+)</option>
+                                  </select>
+
+                                  <input type="number" value={rule.amount} onChange={e => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules[idx].amount = Number(e.target.value);
+                                    setConfig({...config, rules: newRules});
+                                  }} className="w-24 bg-white border border-slate-200 px-2 py-1 rounded font-mono font-bold" placeholder="Rp" />
+
+                                  <button type="button" onClick={() => {
+                                    const newRules = [...(config.rules || [])];
+                                    newRules.splice(idx, 1);
+                                    setConfig({...config, rules: newRules});
+                                  }} className="text-rose-500 hover:bg-rose-100 p-1.5 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </div>
+                              ))}
+                              <button type="button" onClick={() => {
+                                const newRule = { id: 'r'+Date.now(), name: 'Aturan Baru', startTime: '00:00', endTime: '23:59', type: 'denda' as any, amount: 0 };
+                                setConfig({...config!, rules: [...(config?.rules || []), newRule]});
+                              }} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-1.5 px-3 rounded flex items-center gap-1 cursor-pointer">
+                                <Plus className="w-3 h-3" /> Tambah Aturan Kustom
+                              </button>
                             </div>
                           </div>
                         </div>
-
-                        {/* Dynamic Late Fine Tiers Documentation for SOP 2026 */}
-                        <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-lg space-y-2">
-                          <h6 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Ketentuan Denda & Jatah Berjenjang (SOP 2026)</h6>
-                          <div className="text-[11px] text-slate-500 space-y-1 font-mono leading-relaxed">
-                            <div className="flex justify-between border-b border-slate-100 pb-1">
-                              <span>⏱️ Telat 1 - 10 menit (10:01 - 10:10 WIB):</span>
-                              <span className="font-semibold text-emerald-600">Dispensasi Rp 0</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 pb-1">
-                              <span>⏱️ Telat 11 - 30 menit (10:11 - 10:30 WIB):</span>
-                              <span className="font-semibold text-amber-600">Denda Rp 5.000 / Kejadian</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 pb-1">
-                              <span>⏱️ Telat 31 - 60 menit (10:31 - 11:00 WIB):</span>
-                              <span className="font-semibold text-amber-700">Denda Rp 50.000 atau Potong 0.5 Libur</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>⏱️ Telat &gt; 60 menit (&gt; 11:00 WIB):</span>
-                              <span className="font-semibold text-rose-600">Denda Rp 100.000 atau Potong 1 Libur</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
 
                       <button
                         type="submit"
@@ -3913,6 +4225,136 @@ const monthlyKPIData = React.useMemo(() => {
                     />
                   </div>
                 )}
+
+                {/* ----------------------------------------------------------------------
+                   SUBTAB: KELOLA PEGAWAI
+                   ---------------------------------------------------------------------- */}
+                {adminSubTab === 'users' && (
+                  <div className="space-y-6 animate-fade-in text-slate-800">
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                      <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                        <h4 className="font-display font-bold text-sm text-slate-800">Kelola Pegawai Aktif</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">Atur detail pegawai, termasuk jatah libur dan bonus bulanan yang spesifik.</p>
+                      </div>
+
+                      <div className="p-3 overflow-x-auto custom-scrollbar border border-slate-100 rounded-lg">
+                        <table className="w-full text-left border-collapse text-[11px]">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 font-mono text-[10px] uppercase tracking-wider">
+                              <th className="py-1.5 px-3">Pegawai</th>
+                              <th className="py-1.5 px-3">Posisi</th>
+                              <th className="py-1.5 px-3">Jatah Libur / Bulan</th>
+                              <th className="py-1.5 px-3">Tindakan</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {allWorkers.map((worker) => (
+                              <tr key={worker.id} className="hover:bg-blue-50/40 text-slate-700 transition-colors duration-150">
+                                <td className="py-1.5 px-3">
+                                  <div className="flex items-center gap-2">
+                                    <img src={worker.photoUrl} alt="Avatar" className="w-6 h-6 rounded-full" />
+                                    <span className="font-bold capitalize text-slate-800">{worker.username}</span>
+                                  </div>
+                                </td>
+                                <td className="py-1.5 px-3 text-slate-600">{worker.division} <br/><span className="text-[9px] text-slate-400">{worker.position}</span></td>
+                                <td className="py-1.5 px-3 font-mono text-[10px]">
+                                  {worker.leaveQuota.libur} Hari
+                                </td>
+                                <td className="py-1.5 px-3 flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const newLibur = prompt("Masukkan jumlah jatah libur baru untuk " + worker.username, String(worker.leaveQuota.libur));
+                                      if (newLibur !== null) {
+                                        const res = await fetch('/api/users/update-quota', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: worker.id, libur: Number(newLibur) })
+                                        });
+                                        if (res.ok) {
+                                          alert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.");
+                                          fetchAllWorkers();
+                                        }
+                                      }
+                                    }}
+                                    className="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Atur Jatah Libur
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (confirm(`Apakah Anda yakin ingin menghapus akun ${worker.username}?`)) {
+                                        const res = await fetch('/api/users/delete', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: worker.id })
+                                        });
+                                        if (res.ok) {
+                                          alert("Akun berhasil dihapus.");
+                                          fetchAllWorkers();
+                                        }
+                                      }
+                                    }}
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Hapus
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const disabled = !worker.disabled;
+                                      const res = await fetch('/api/users/disable', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ userId: worker.id, disabled })
+                                      });
+                                      if (res.ok) {
+                                        alert(`Akun berhasil ${disabled ? 'dinonaktifkan' : 'diaktifkan'}.`);
+                                        fetchAllWorkers();
+                                      }
+                                    }}
+                                    className="bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    {worker.disabled ? 'Aktifkan' : 'Nonaktifkan'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ----------------------------------------------------------------------
+                   SUBTAB: INFO AKUN DEMO
+                   ---------------------------------------------------------------------- */}
+                {adminSubTab === 'demo' && (
+                  <div className="space-y-6 animate-fade-in text-slate-800">
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm p-6">
+                      <h4 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2 mb-4">
+                        <HelpCircle className="w-4 h-4 text-blue-600" />
+                        Info Akun Uji Coba Demo
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] font-mono">
+                        <div className="p-3 border border-slate-200 bg-slate-50 rounded-lg">
+                          <span className="text-blue-600 font-semibold font-sans block mb-1">⚙️ Akun Admin</span>
+                          <p>ID: <b className="text-slate-800">admin@absensi.com</b></p>
+                          <p>Pass: <b className="text-slate-800">admin</b></p>
+                        </div>
+                        <div className="p-3 border border-slate-200 bg-slate-50 rounded-lg">
+                          <span className="text-blue-600 font-semibold font-sans block mb-1">👤 Akun Worker (Budi)</span>
+                          <p>ID: <b className="text-slate-800">budi@absensi.com</b></p>
+                          <p>Pass: <b className="text-slate-800">password</b></p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+
 
                 {/* ----------------------------------------------------------------------
                    SUBTAB: DESTRUCTIVE SYSTEM RESET (FACTORY RESET)
@@ -3940,6 +4382,8 @@ const monthlyKPIData = React.useMemo(() => {
               </div>
             )}
           </main>
+
+          </div> {/* End inner flex wrap */}
         </div>
       )}
 
@@ -4025,8 +4469,8 @@ const monthlyKPIData = React.useMemo(() => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 h-[400px] relative bg-slate-100">
-              <MapLibreView
+            <div className="w-full relative bg-slate-100" style={{ height: "400px", minHeight: "400px" }}>
+              <MapView
                 userLat={deviceLat}
                 userLng={deviceLng}
                 locations={locations}
@@ -4042,10 +4486,17 @@ const monthlyKPIData = React.useMemo(() => {
               {/* Force tracking refresh */}
               <button
                 type="button"
-                onClick={trackDeviceLocation}
-                className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
+                onClick={async () => {
+                   const btn = document.getElementById('btn-refresh-gps');
+                   if (btn) btn.classList.add('animate-spin');
+                   await trackDeviceLocation();
+                   setTimeout(() => {
+                     if (btn) btn.classList.remove('animate-spin');
+                   }, 800);
+                }}
+                className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw id="btn-refresh-gps" className="w-4 h-4" />
                 <span>Gunakan Lokasi Saat Ini (Segarkan GPS)</span>
               </button>
               <button
@@ -4069,89 +4520,6 @@ const monthlyKPIData = React.useMemo(() => {
         </div>
       )}
 
-      {/* Non-blocking Permission Modal Overlay */}
-      {showPermissionPromptModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9998] animate-fade-in text-slate-800">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-5">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
-                  <ShieldCheck className="w-5 h-5" />
-                </span>
-                <h3 className="font-display font-bold text-slate-900 text-sm">
-                  Izin Diperlukan (SOP Absensi 2026)
-                </h3>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Untuk mematuhi kebijakan absensi berjenjang yang ketat di bawah SOP per 1 Juli 2026, sistem memerlukan verifikasi liveness foto dan validasi koordinat GPS geofence Anda.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {/* GPS Status Card */}
-              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className={`p-2 rounded-lg ${permissionStates.gps === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                    <MapPin className="w-4 h-4" />
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">Akses Lokasi (GPS)</h4>
-                    <p className="text-[10px] text-slate-500">Mencegah manipulasi geofence</p>
-                  </div>
-                </div>
-                {permissionStates.gps === 'granted' ? (
-                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">Diaktifkan</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={requestGPSPermission}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition cursor-pointer"
-                  >
-                    Izinkan
-                  </button>
-                )}
-              </div>
-
-              {/* Camera Status Card */}
-              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className={`p-2 rounded-lg ${permissionStates.camera === 'granted' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                    <Camera className="w-4 h-4" />
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">Akses Kamera</h4>
-                    <p className="text-[10px] text-slate-500">Untuk Verifikasi Liveness Lulus</p>
-                  </div>
-                </div>
-                {permissionStates.camera === 'granted' ? (
-                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">Diaktifkan</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={requestCameraPermission}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition cursor-pointer"
-                  >
-                    Izinkan
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <p className="text-[10px] text-rose-500 font-semibold leading-relaxed max-w-[200px]">
-                *Fitur absen masuk akan terkunci sepenuhnya jika Anda menolak izin ini.
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowPermissionPromptModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer"
-              >
-                Nanti Saja
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

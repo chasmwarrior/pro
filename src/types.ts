@@ -89,11 +89,21 @@ export interface Announcement {
   createdBy: string;
 }
 
+export interface DynamicRule {
+  id: string;
+  name: string;
+  startTime: string; // HH:MM
+  endTime: string;   // HH:MM
+  type: 'denda' | 'bonus' | 'lembur';
+  amount: number;
+}
+
 export interface AppConfig {
   branding: AppBranding;
-  dendaTelat: number;
-  bonusTepatWaktu: number;
+  dendaTelat: number; // Keep for legacy fallback
+  bonusTepatWaktu: number; // Keep for legacy fallback
   bonusDisiplinBulanan: number;
   divisions: string[];
   positions: string[];
+  rules: DynamicRule[];
 }

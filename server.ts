@@ -1,9 +1,29 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
+import cors from 'cors';
+import { Server as SocketIOServer } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 
+
 const app = express();
+const server = http.createServer(app);
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on('connection', (socket) => {
+  // When a worker sends their live location
+  socket.on('workerLocationUpdate', (data) => {
+    // Broadcast this location update to all other connected clients (like admins)
+    socket.broadcast.emit('radarUpdate', data);
+  });
+});
+
 const PORT = 3000;
 
 // Set up JSON parsing with a large size limit to support base64 liveness photos
@@ -68,86 +88,10 @@ function ensureDB() {
           currentLat: -6.2091,
           currentLng: 106.8461,
           lastActiveAt: new Date().toISOString()
-        },
-        {
-          id: "u4",
-          username: "siti",
-          email: "siti@absensi.com",
-          password: "password",
-          role: "worker",
-          status: "pending",
-          division: "Operations",
-          position: "Staff Gudang",
-          photoUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-          leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
         }
-      ],
-      attendanceRecords: [
-        {
-          id: "r1",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-08",
-          checkInTime: "07:45:12",
-          checkInLat: -6.2089,
-          checkInLng: 106.8458,
-          checkInLocationName: "Kantor Pusat Jakarta",
-          checkOutTime: "17:05:30",
-          checkOutLat: -6.2088,
-          checkOutLng: 106.8456,
-          checkOutLocationName: "Kantor Pusat Jakarta",
-          isLate: false,
-          isEarlyOut: false,
-          isOutsideGeofence: false,
-          status: "approved",
-          fineAmount: 0,
-          bonusAmount: 25000,
-          note: "Hadir tepat waktu di area kantor"
-        },
-        {
-          id: "r2",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-09",
-          checkInTime: "08:15:44",
-          checkInLat: -6.2088,
-          checkInLng: 106.8456,
-          checkInLocationName: "Kantor Pusat Jakarta",
-          checkOutTime: "17:01:10",
-          checkOutLat: -6.2088,
-          checkOutLng: 106.8456,
-          checkOutLocationName: "Kantor Pusat Jakarta",
-          isLate: true,
-          isEarlyOut: false,
-          isOutsideGeofence: false,
-          status: "approved",
-          fineAmount: 50000,
-          bonusAmount: 0,
-          note: "Terlambat masuk 15 menit"
-        }
-      ],
-      leaveRequests: [
-        {
-          id: "l1",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-15",
-          status: "approved",
-          notes: "Menghadiri pernikahan keluarga"
-        },
-        {
-          id: "l2",
-          userId: "u3",
-          username: "budi",
-          division: "Logistics",
-          date: "2026-07-20",
-          status: "pending",
-          notes: "Pemeriksaan kesehatan rutin"
-        }
-      ],
+    ],
+      attendanceRecords: [],
+      leaveRequests: [],
       locations: [
         {
           id: "loc1",
@@ -164,22 +108,20 @@ function ensureDB() {
           radiusMeter: 200
         }
       ],
-      announcements: [
-        {
-          id: "a1",
-          title: "SOP KETENTUAN ABSENSI TERBARU (Berlaku Mulai 1 Juli 2026)",
-          content: "Ketentuan Absensi Utama:\n1. Jam Kerja: Masuk 10.00 WIB, Pulang 20.00 WIB. Keterlambatan dihitung sejak pukul 10.11 WIB.\n2. Jatah Telat: 2x per bulan (bebas denda jika datang sebelum 13.00 WIB. Jika datang setelah 13.00, denda dihitung dari jam 10.00).\n3. Jatah Darurat Pribadi: 2x per 6 bulan (ban bocor, mogok, dll) dengan melampirkan bukti.\n4. Denda Keterlambatan: Mulai dari Rp5.000 s/d Rp50.000 (sesuai tabel denda). Setiap +30 menit setelah 13.30 didenda +Rp10.000.\n5. Absen Manual: Hanya untuk kondisi khusus, wajib sampai gudang dalam 2 jam setelah absen manual (melanggar ketentuan ini didenda denda kurir & potong jatah libur).\n6. Bonus Disiplin: Diberikan bulanan bila telat <= 2x, tidak melanggar absen manual, dan jatah libur terpakai <= 4 hari.",
-          startDate: "2026-07-01",
-          endDate: "2026-07-31",
-          createdBy: "admin"
-        }
-      ],
+      announcements: [],
       config: {
         branding: {
           name: "AbsenPro Nusantara",
           logoUrl: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=100&h=100&fit=crop&q=80"
         },
         dendaTelat: 50000,
+      rules: [
+        {"id": "r1", "name": "Bonus Tepat Waktu (Pagi)", "startTime": "00:00", "endTime": "10:00", "type": "bonus", "amount": 10000},
+        {"id": "r2", "name": "Denda Telat Ringan", "startTime": "10:01", "endTime": "10:30", "type": "denda", "amount": 5000},
+        {"id": "r3", "name": "Denda Telat Sedang", "startTime": "10:31", "endTime": "11:00", "type": "denda", "amount": 50000},
+        {"id": "r4", "name": "Denda Telat Berat", "startTime": "11:01", "endTime": "23:59", "type": "denda", "amount": 100000},
+        {"id": "r5", "name": "Lembur Jam ke-1", "startTime": "20:01", "endTime": "21:00", "type": "lembur", "amount": 20000}
+      ],
         bonusTepatWaktu: 25000,
         bonusDisiplinBulanan: 200000,
         divisions: [
@@ -247,25 +189,49 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c; // Distance in meters
 }
 
-// Calculate late fine based on check-in time according to SOP 1 Juli 2026
-function calculateLateFine(timeStr: string): number {
-  const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
-  const totalMinutes = hours * 60 + minutes + seconds / 60;
-  const startMinutes = 10 * 60; // 10:00 WIB
-  const diffMinutes = totalMinutes - startMinutes;
 
-  if (diffMinutes <= 10) {
-    return 0; // Up to 10:10:59 is fine, late starts at 10:11 WIB
+// Helper to parse HH:MM to minutes since midnight
+function timeStrToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map(Number);
+  const h = parts[0] || 0;
+  const m = parts[1] || 0;
+  const s = parts[2] || 0;
+  return h * 60 + m + s / 60;
+}
+
+// Calculate late fine or bonus based on dynamic config rules
+function calculateDynamicIncentives(timeStr: string, rules: any[]): { fineAmount: number, bonusAmount: number } {
+  const checkInMinutes = timeStrToMinutes(timeStr);
+  let fineAmount = 0;
+  let bonusAmount = 0;
+
+  if (rules && Array.isArray(rules) && rules.length > 0) {
+    for (const rule of rules) {
+      if (!rule || !rule.startTime || !rule.endTime) continue;
+      const startMin = timeStrToMinutes(rule.startTime);
+      const endMin = timeStrToMinutes(rule.endTime);
+
+      if (checkInMinutes >= startMin && checkInMinutes <= endMin) {
+        if (rule.type === 'denda') {
+          fineAmount = Math.max(fineAmount, Number(rule.amount) || 0); // Take highest applicable fine
+        } else if (rule.type === 'bonus') {
+          bonusAmount += (Number(rule.amount) || 0); // Accumulate bonuses
+        }
+      }
+    }
+  } else {
+    // Legacy fallback to SOP 2026 hardcoded logic if no dynamic rules
+    const startMinutes = 10 * 60; // 10:00 WIB
+    const diffMinutes = checkInMinutes - startMinutes;
+
+    if (diffMinutes > 10 && diffMinutes <= 30) fineAmount = 5000;
+    else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 50000;
+    else if (diffMinutes > 60) fineAmount = 100000;
+    else bonusAmount = 25000; // Legacy bonusTepatWaktu
   }
 
-  if (diffMinutes > 10 && diffMinutes <= 30) {
-    return 5000; // 10.11 – 10.30: Rp5.000
-  }
-  if (diffMinutes > 30 && diffMinutes <= 60) {
-    return 50000; // 10.31 – 11.00: Rp50.000
-  }
-  // diffMinutes > 60
-  return 100000; // > 11.00: Rp100.000
+  return { fineAmount, bonusAmount };
 }
 
 /* ==========================================================================
@@ -288,6 +254,13 @@ app.post('/api/config', (req, res) => {
   db.config = { ...db.config, ...req.body };
   writeDB(db);
   res.json({ success: true, config: db.config });
+});
+
+app.post('/api/config/rules', (req, res) => {
+  const db = readDB();
+  db.config.rules = req.body.rules;
+  writeDB(db);
+  res.json({ success: true, rules: db.config.rules });
 });
 
 // 3. Auth Endpoints
@@ -331,6 +304,9 @@ app.post('/api/auth/login', (req, res) => {
   let user;
   if (isGoogleAuth) {
     user = db.users.find((u: any) => u.email.toLowerCase() === credential.toLowerCase());
+    if (user && user.disabled) {
+        return res.status(403).json({ error: 'Akun dinonaktifkan (Disabled).' });
+    }
     if (!user) {
       // Auto-register google users as pending if they don't exist
       const newId = 'u_' + Math.random().toString(36).substr(2, 9);
@@ -376,6 +352,33 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // 4. Pending Workers Management
+
+app.post('/api/users/delete', (req, res) => {
+  const { userId } = req.body;
+  const db = readDB();
+  const initialLength = db.users.length;
+  db.users = db.users.filter((u: any) => u.id !== userId);
+  if (db.users.length < initialLength) {
+    writeDB(db);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+});
+
+app.post('/api/users/disable', (req, res) => {
+  const { userId, disabled } = req.body;
+  const db = readDB();
+  const userIdx = db.users.findIndex((u: any) => u.id === userId);
+  if (userIdx !== -1) {
+    db.users[userIdx].disabled = disabled;
+    writeDB(db);
+    res.json({ success: true, user: db.users[userIdx] });
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+});
+
 app.get('/api/users/pending', (req, res) => {
   const db = readDB();
   const pendingUsers = db.users.filter((u: any) => u.status === 'pending');
@@ -385,6 +388,19 @@ app.get('/api/users/pending', (req, res) => {
 app.get('/api/users', (req, res) => {
   const db = readDB();
   res.json(db.users);
+});
+
+app.post('/api/users/update-quota', (req, res) => {
+  const { userId, libur } = req.body;
+  const db = readDB();
+  const user = db.users.find((u: any) => u.id === userId);
+  if (user) {
+    if (libur !== undefined) user.leaveQuota.libur = libur;
+    writeDB(db);
+    res.json({ success: true, user });
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
 });
 
 app.post('/api/users/approve', (req, res) => {
@@ -485,10 +501,12 @@ app.post('/api/attendance/check-in', (req, res) => {
   // Working Hours (SOP 1 Juli 2026: Jam masuk 10:00 WIB, telat mulai 10:11 WIB)
   const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
   const totalCheckInMinutes = hours * 60 + minutes + seconds / 60;
-  const isLate = totalCheckInMinutes >= 10 * 60 + 11; // >= 10:11 WIB is late
+  // Use dynamic rules to determine base fine/bonus amounts and late status
+  const { fineAmount: baseFine, bonusAmount: baseBonus } = calculateDynamicIncentives(timeStr, db.config.rules);
+  const isLate = baseFine > 0 || (totalCheckInMinutes >= 10 * 60 + 11); // Fallback to 10:11 for legacy support
 
-  let fineAmount = 0;
-  let bonusAmount = 0;
+  let fineAmount = baseFine;
+  let bonusAmount = baseBonus;
   let usedQuotaType: 'telat' | 'telatDarurat' | 'libur' | null = null;
   let note = '';
 
@@ -549,13 +567,11 @@ app.post('/api/attendance/check-in', (req, res) => {
           note = `Terlambat masuk ke-3 diganti potong jatah libur (Tanpa denda).`;
         } else {
           // No leave quota left
-          fineAmount = calculateLateFine(timeStr);
-          note = `Terlambat masuk ke-3. Jatah libur habis untuk pengganti denda. Denda dihitung sejak 10:00.`;
+          note = `Terlambat masuk ke-3. Jatah libur habis untuk pengganti denda. Denda dihitung sesuai aturan dinamis.`;
         }
       } else {
         // Late #4 onwards: standard denda from 10:00
-        fineAmount = calculateLateFine(timeStr);
-        note = `Terlambat masuk ke-${previousLateCount + 1} (Jatah jatah telat habis). Denda dihitung sejak 10:00.`;
+        note = `Terlambat masuk ke-${previousLateCount + 1} (Jatah jatah telat habis). Denda dihitung sesuai aturan dinamis.`;
       }
     }
 
@@ -565,9 +581,12 @@ app.post('/api/attendance/check-in', (req, res) => {
       note += ' Wajib potong jatah libur karena telat masuk setelah jam 14:00.';
     }
   } else {
-    // On-time check-in
-    bonusAmount = db.config.bonusTepatWaktu;
-    note = 'Tepat waktu.';
+    // On-time check-in handled dynamically
+    if (bonusAmount > 0) {
+      note = 'Tepat waktu (Bonus didapatkan).';
+    } else {
+      note = 'Tepat waktu.';
+    }
   }
 
   const newRecord = {
@@ -611,8 +630,20 @@ app.post('/api/attendance/check-in', (req, res) => {
 });
 
 app.post('/api/attendance/check-out', (req, res) => {
-  const { userId, lat, lng } = req.body;
+  const { userId, lat, lng, device } = req.body;
   const db = readDB();
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User tidak ditemukan.' });
+  }
+
+  // Device binding check for checkout
+  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+    return res.status(400).json({
+      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+    });
+  }
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
@@ -648,8 +679,6 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   let isEarlyOutViolation = false;
   let checkoutNote = '';
-
-  const user = db.users.find((u: any) => u.id === userId);
 
   if (isEarlyOut) {
     const currentMonthStr = dateStr.substring(0, 7);
@@ -776,7 +805,52 @@ app.post('/api/attendance/manual-arrive', (req, res) => {
   res.json({ success: true, record });
 });
 
+
+// User cancels their own leave request
+app.post('/api/leaves/cancel', (req, res) => {
+  const { leaveId, userId } = req.body;
+  const db = readDB();
+
+  const leaveIndex = db.leaveRequests.findIndex((l: any) => l.id === leaveId && l.userId === userId);
+
+  if (leaveIndex === -1) {
+    return res.status(404).json({ error: 'Pengajuan libur tidak ditemukan atau Anda tidak memiliki akses.' });
+  }
+
+  const leave = db.leaveRequests[leaveIndex];
+
+  // Calculate if it's at least 1 day before
+  const leaveDate = new Date(leave.date);
+  const today = new Date();
+
+  // Reset times to midnight for accurate date comparison
+  leaveDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+
+  // Time difference in milliseconds
+  const diffTime = leaveDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 1) {
+    return res.status(400).json({ error: 'Libur hanya dapat dibatalkan maksimal 1 hari sebelum tanggal berlaku.' });
+  }
+
+  // Restore quota if it was already approved
+  if (leave.status === 'approved') {
+    const user = db.users.find((u: any) => u.id === userId);
+    if (user) {
+      user.leaveQuota.libur += 1;
+    }
+  }
+
+  db.leaveRequests.splice(leaveIndex, 1);
+  writeDB(db);
+
+  res.json({ success: true, message: 'Pengajuan libur berhasil dibatalkan.' });
+});
+
 // Admin approves a pending check-in (outside office or late)
+
 app.post('/api/attendance/approve-pending', (req, res) => {
   const {
     recordId,
@@ -1185,7 +1259,8 @@ app.post('/api/admin/factory-reset', (req, res) => {
         lastCheckInDevice: "Android-Device-SPV",
         currentLat: -6.2349,
         currentLng: 106.9896,
-        lastActiveAt: new Date().toISOString()
+        lastActiveAt: new Date().toISOString(),
+        disabled: true
       },
       {
         id: "u3",
@@ -1201,87 +1276,12 @@ app.post('/api/admin/factory-reset', (req, res) => {
         lastCheckInDevice: "Android-Budi-S21",
         currentLat: -6.2091,
         currentLng: 106.8461,
-        lastActiveAt: new Date().toISOString()
-      },
-      {
-        id: "u4",
-        username: "siti",
-        email: "siti@absensi.com",
-        password: "password",
-        role: "worker",
-        status: "pending",
-        division: "Operations",
-        position: "Staff Gudang",
-        photoUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-        leaveQuota: { libur: 4, telat: 2, telatDarurat: 2, pulangCepat: 3 }
+        lastActiveAt: new Date().toISOString(),
+        disabled: true
       }
     ],
-    attendanceRecords: [
-      {
-        id: "r1",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-08",
-        checkInTime: "07:45:12",
-        checkInLat: -6.2089,
-        checkInLng: 106.8458,
-        checkInLocationName: "Kantor Pusat Jakarta",
-        checkOutTime: "17:05:30",
-        checkOutLat: -6.2088,
-        checkOutLng: 106.8456,
-        checkOutLocationName: "Kantor Pusat Jakarta",
-        isLate: false,
-        isEarlyOut: false,
-        isOutsideGeofence: false,
-        status: "approved",
-        fineAmount: 0,
-        bonusAmount: 25000,
-        note: "Hadir tepat waktu di area kantor"
-      },
-      {
-        id: "r2",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-09",
-        checkInTime: "08:15:44",
-        checkInLat: -6.2088,
-        checkInLng: 106.8456,
-        checkInLocationName: "Kantor Pusat Jakarta",
-        checkOutTime: "17:01:10",
-        checkOutLat: -6.2088,
-        checkOutLng: 106.8456,
-        checkOutLocationName: "Kantor Pusat Jakarta",
-        isLate: true,
-        isEarlyOut: false,
-        isOutsideGeofence: false,
-        status: "approved",
-        fineAmount: 50000,
-        bonusAmount: 0,
-        note: "Terlambat masuk 15 menit"
-      }
-    ],
-    leaveRequests: [
-      {
-        id: "l1",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-15",
-        status: "approved",
-        notes: "Menghadiri pernikahan keluarga"
-      },
-      {
-        id: "l2",
-        userId: "u3",
-        username: "budi",
-        division: "Logistics",
-        date: "2026-07-20",
-        status: "pending",
-        notes: "Pemeriksaan kesehatan rutin"
-      }
-    ],
+    attendanceRecords: [],
+    leaveRequests: [],
     locations: [
       {
         id: "loc1",
@@ -1298,22 +1298,20 @@ app.post('/api/admin/factory-reset', (req, res) => {
         radiusMeter: 200
       }
     ],
-    announcements: [
-      {
-        id: "a1",
-        title: "SOP KETENTUAN ABSENSI TERBARU (Berlaku Mulai 1 Juli 2026)",
-        content: "Ketentuan Absensi Utama:\n1. Jam Kerja: Masuk 10.00 WIB, Pulang 20.00 WIB. Keterlambatan dihitung sejak pukul 10.11 WIB.\n2. Jatah Telat: 2x per bulan (bebas denda jika datang sebelum 13.00 WIB. Jika datang setelah 13.00, denda dihitung dari jam 10.00).\n3. Jatah Darurat Pribadi: 2x per 6 bulan (ban bocor, mogok, dll) dengan melampirkan bukti.\n4. Denda Keterlambatan: Mulai dari Rp5.000 s/d Rp50.000 (sesuai tabel denda). Setiap +30 menit setelah 13.30 didenda +Rp10.000.\n5. Absen Manual: Hanya untuk kondisi khusus, wajib sampai gudang dalam 2 jam setelah absen manual (melanggar ketentuan ini didenda denda kurir & potong jatah libur).\n6. Bonus Disiplin: Diberikan bulanan bila telat <= 2x, tidak melanggar absen manual, dan jatah libur terpakai <= 4 hari.",
-        startDate: "2026-07-01",
-        endDate: "2026-07-31",
-        createdBy: "admin"
-      }
-    ],
+    announcements: [],
     config: {
       branding: {
         name: "AbsenPro Nusantara",
         logoUrl: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=100&h=100&fit=crop&q=80"
       },
       dendaTelat: 50000,
+      rules: [
+        {"id": "r1", "name": "Bonus Tepat Waktu (Pagi)", "startTime": "00:00", "endTime": "10:00", "type": "bonus", "amount": 10000},
+        {"id": "r2", "name": "Denda Telat Ringan", "startTime": "10:01", "endTime": "10:30", "type": "denda", "amount": 5000},
+        {"id": "r3", "name": "Denda Telat Sedang", "startTime": "10:31", "endTime": "11:00", "type": "denda", "amount": 50000},
+        {"id": "r4", "name": "Denda Telat Berat", "startTime": "11:01", "endTime": "23:59", "type": "denda", "amount": 100000},
+        {"id": "r5", "name": "Lembur Jam ke-1", "startTime": "20:01", "endTime": "21:00", "type": "lembur", "amount": 20000}
+      ],
       bonusTepatWaktu: 25000,
       bonusDisiplinBulanan: 200000,
       divisions: [
@@ -1356,7 +1354,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
 }

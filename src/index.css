@@ -27,3 +27,9 @@
   border-radius: 3px;
 }
 
+
+.maplibre-container .maplibregl-canvas {
+  outline: none;
+  width: 100% !important;
+  height: 100% !important;
+}
