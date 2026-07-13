@@ -439,6 +439,7 @@ app.post('/api/users/reject', (req, res) => {
 
 // 5. Attendance Operations (Check in / Check out)
 app.post('/api/attendance/check-in', (req, res) => {
+  try {
   const { userId, lat, lng, device, livenessPhoto, isManualCheckIn, isEmergencyLate, emergencyLateReason } = req.body;
   const db = readDB();
 
@@ -627,9 +628,14 @@ app.post('/api/attendance/check-in', (req, res) => {
         ? 'Check-in berhasil diajukan (Menunggu Persetujuan Admin karena berada di luar area geofence).'
         : `Check-in sukses! ${note}`
   });
+  } catch (err) {
+    console.error("Checkin Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 app.post('/api/attendance/check-out', (req, res) => {
+  try {
   const { userId, lat, lng, device } = req.body;
   const db = readDB();
 
@@ -721,6 +727,10 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   writeDB(db);
   res.json({ success: true, record: db.attendanceRecords[recordIdx] });
+  } catch (err) {
+    console.error("Checkout Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 // Confirm arrival at warehouse for Manual Check-In
