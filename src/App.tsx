@@ -501,6 +501,14 @@ export default function App() {
     return () => clearInterval(interval);
   }, [adminSubTab, isAutoRefreshRadar, radarRefreshInterval]);
 
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'logs') {
+        fetchAdminLogs();
+        const interval = setInterval(fetchAdminLogs, 2000);
+        return () => clearInterval(interval);
+    }
+  }, [activeTab, adminSubTab]);
+
   // Track coordinates in background and manage global events
   useEffect(() => {
     trackDeviceLocation();
@@ -544,14 +552,24 @@ export default function App() {
 
   const generateDeviceFingerprint = () => {
     let fingerprint = localStorage.getItem('device_fingerprint');
+    // Also try checking cookie in case Android clears localStorage but keeps cookies
+    if (!fingerprint) {
+       const match = document.cookie.match(new RegExp('(^| )device_fingerprint=([^;]+)'));
+       if (match) fingerprint = match[2];
+    }
+
     if (!fingerprint) {
       const userAgent = navigator.userAgent;
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
       const platform = navigator.platform || 'Unknown';
-      const randomId = Math.random().toString(36).substring(2, 8);
+      const randomId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
       fingerprint = `${isMobile ? 'Mobile' : 'Desktop'}-${platform.split(' ')[0]}-${randomId}`;
-      localStorage.setItem('device_fingerprint', fingerprint);
     }
+
+    // Always enforce saving on both mediums
+    localStorage.setItem('device_fingerprint', fingerprint);
+    document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
+
     setDeviceFingerprint(fingerprint);
   };
 
@@ -670,6 +688,16 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const fetchAdminLogs = async () => {
+    try {
+        const res = await fetch('/api/admin/logs');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.logs)) {
+             setDebugLogs(data.logs);
+        }
+    } catch (e) {}
   };
 
   const fetchAttendanceHistory = async () => {
@@ -2236,6 +2264,24 @@ const monthlyKPIData = React.useMemo(() => {
                 >
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Persetujuan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('logs');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Sistem Log"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'logs'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Terminal className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Sistem Log</span>
                 </button>
 
                 <button
@@ -4338,6 +4384,63 @@ const monthlyKPIData = React.useMemo(() => {
                             </div>
                           ))
                         ) : <div className="text-center py-6 text-sm text-slate-400">Tidak ada riwayat persetujuan absensi/lembur.</div>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {adminSubTab === 'logs' && (
+                  <div className="space-y-6 animate-fade-in text-slate-800">
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden shadow-xl flex flex-col h-[600px]">
+                      <div className="p-4 border-b border-slate-700 bg-slate-800/80 flex items-center justify-between">
+                        <div>
+                          <h4 className="font-display font-bold text-sm text-slate-200 flex items-center gap-2">
+                            <Terminal className="w-4 h-4 text-blue-400" /> Unified Server & Client Logs
+                          </h4>
+                          <p className="text-[10px] text-slate-400 mt-1">Real-time combined logs from the PM2 Node Server and active Web/APK clients.</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(debugLogs.join('\n'));
+                              showCustomAlert("Logs copied to clipboard.", "Copied");
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-mono text-[10px] px-3 py-1.5 rounded transition"
+                          >
+                            Copy Logs
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await fetch('/api/admin/logs/clear', { method: 'POST' });
+                              setDebugLogs([]);
+                            }}
+                            className="bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 font-mono text-[10px] px-3 py-1.5 rounded transition"
+                          >
+                            Clear Logs
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 p-4 overflow-y-auto font-mono text-[10px] sm:text-xs text-slate-300 space-y-1 bg-slate-950 custom-scrollbar">
+                        {debugLogs.length > 0 ? (
+                          debugLogs.map((log, i) => (
+                            <div key={i} className={`whitespace-pre-wrap break-words ${
+                              log.includes('[ERROR]') ? 'text-rose-400' :
+                              log.includes('[WARN]') ? 'text-amber-400' :
+                              log.includes('[CLIENT]') ? 'text-blue-300' : 'text-slate-300'
+                            }`}>
+                              {log}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-slate-600 text-center h-full flex flex-col items-center justify-center">
+                            <Terminal className="w-8 h-8 mb-2 opacity-50" />
+                            <p>No system logs recorded yet.</p>
+                            <p className="text-[9px] mt-1">Waiting for incoming server or client dispatches...</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

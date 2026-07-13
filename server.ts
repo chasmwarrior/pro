@@ -32,6 +32,51 @@ app.use(express.urlencoded({ limit: '15mb', extended: true }));
 
 const DB_PATH = path.join(process.cwd(), 'src', 'db', 'db.json');
 
+// Memory Buffer for System Logs
+let unifiedSystemLogs: string[] = [];
+const MAX_LOGS = 2000;
+
+function addUnifiedLog(source: 'SERVER' | 'CLIENT', level: string, message: string) {
+    const time = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const logStr = `[${time}] [${source}] [${level}] ${message}`;
+    unifiedSystemLogs.unshift(logStr);
+    if (unifiedSystemLogs.length > MAX_LOGS) {
+        unifiedSystemLogs.pop();
+    }
+}
+
+// Intercept server console logs
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+const originalConsoleInfo = console.info;
+
+
+const safeStringify = (obj: any) => {
+    try {
+        return JSON.stringify(obj);
+    } catch (e) {
+        return '[Unserializable/Circular Object]';
+    }
+};
+
+console.log = (...args) => {
+    originalConsoleLog(...args);
+    addUnifiedLog('SERVER', 'INFO', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
+};
+console.error = (...args) => {
+    originalConsoleError(...args);
+    addUnifiedLog('SERVER', 'ERROR', args.map(a => (a instanceof Error ? a.toString() : (typeof a === 'object' ? safeStringify(a) : String(a)))).join(' '));
+};
+console.warn = (...args) => {
+    originalConsoleWarn(...args);
+    addUnifiedLog('SERVER', 'WARN', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
+};
+console.info = (...args) => {
+    originalConsoleInfo(...args);
+    addUnifiedLog('SERVER', 'INFO', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
+};
+
 // Ensure database directory and file exist
 function ensureDB() {
   const dir = path.dirname(DB_PATH);
@@ -1267,6 +1312,29 @@ app.post('/api/admin/manual-checkout', (req, res) => {
 
   writeDB(db);
   res.json({ success: true, record: db.attendanceRecords[recordIdx] });
+});
+
+// Unified System Logs API
+app.get('/api/admin/logs', (req, res) => {
+  res.json({ success: true, logs: unifiedSystemLogs });
+});
+
+app.post('/api/admin/logs/client', (req, res) => {
+  const { logs } = req.body; // Expecting array of strings: "[time] [level] message"
+  if (Array.isArray(logs)) {
+      logs.forEach(log => {
+          unifiedSystemLogs.unshift(log); // already formatted by client
+      });
+      if (unifiedSystemLogs.length > MAX_LOGS) {
+          unifiedSystemLogs = unifiedSystemLogs.slice(0, MAX_LOGS);
+      }
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/admin/logs/clear', (req, res) => {
+    unifiedSystemLogs = [];
+    res.json({ success: true });
 });
 
 // 8. Announcements (Pengumuman)
