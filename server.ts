@@ -552,7 +552,7 @@ app.post('/api/attendance/check-in', (req, res) => {
           note = `Terlambat masuk ke-${previousLateCount + 1} (Dalam jatah & tiba sebelum 13:00, Bebas Denda).`;
         } else {
           // Arrived after 13:00 WIB
-          fineAmount = calculateLateFine(timeStr);
+          fineAmount = calculateDynamicIncentives(timeStr, db.config.rules).fineAmount;
           usedQuotaType = 'telat';
           if (user.leaveQuota.telat > 0) {
             user.leaveQuota.telat -= 1;
@@ -906,7 +906,7 @@ app.post('/api/attendance/approve-pending', (req, res) => {
       record.fineAmount = Number(customFineValue || 0);
     } else {
       // 'auto' calculation
-      record.fineAmount = calculateLateFine(record.checkInTime);
+      record.fineAmount = calculateDynamicIncentives(record.checkInTime, db.config.rules).fineAmount;
     }
 
     // Construct a detailed log/note
