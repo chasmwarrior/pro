@@ -292,9 +292,16 @@ export default function App() {
     console.debug = (...args) => { originalDebug(...args); addLog('DEBUG', ...args); };
     console.info = (...args) => { originalInfo(...args); addLog('INFO', ...args); };
 
-    // Update the visual logs state fast
+    // Update the visual logs state fast (only if we aren't looking at the unified server logs tab)
     const interval = setInterval(() => {
-        setDebugLogs([...logsRef.current]);
+        setDebugLogs(prev => {
+           // Hack to access current state context within the interval
+           const isViewingServerLogs = window.location.hash === '#admin-logs';
+           if (!isViewingServerLogs) {
+              return [...logsRef.current];
+           }
+           return prev;
+        });
     }, 500);
 
     return () => {
@@ -701,6 +708,18 @@ export default function App() {
         }
     } catch (e) {}
   };
+
+  // Periodically fetch unified server logs if active
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'logs') {
+        window.location.hash = '#admin-logs';
+        fetchAdminLogs();
+        const t = setInterval(fetchAdminLogs, 2000);
+        return () => clearInterval(t);
+    } else {
+        window.location.hash = '';
+    }
+  }, [activeTab, adminSubTab]);
 
   const fetchAttendanceHistory = async () => {
     try {
@@ -2274,6 +2293,7 @@ const monthlyKPIData = React.useMemo(() => {
                 <button
                   type="button"
                   onClick={() => {
+                    window.location.hash = '#admin-logs';
                     setActiveTab('admin');
                     setAdminSubTab('logs');
                     setIsMobileSidebarOpen(false);

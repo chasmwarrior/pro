@@ -36,6 +36,52 @@ app.use(express.urlencoded({ limit: '15mb', extended: true }));
 
 const DB_PATH = path.join(process.cwd(), 'src', 'db', 'db.json');
 
+// Memory Buffer for System Logs
+let unifiedSystemLogs = [];
+const MAX_LOGS = 2000;
+
+function addUnifiedLog(source, level, message) {
+    const time = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const logStr = `[${time}] [${source}] [${level}] ${message}`;
+    unifiedSystemLogs.unshift(logStr);
+    if (unifiedSystemLogs.length > MAX_LOGS) {
+        unifiedSystemLogs.pop();
+    }
+}
+
+const safeStringify = (obj) => {
+    try {
+        return JSON.stringify(obj);
+    } catch (e) {
+        return '[Unserializable/Circular Object]';
+    }
+};
+
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+const originalConsoleInfo = console.info;
+
+console.log = (...args) => {
+    originalConsoleLog(...args);
+    addUnifiedLog('SERVER', 'INFO', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
+};
+console.error = (...args) => {
+    originalConsoleError(...args);
+    addUnifiedLog('SERVER', 'ERROR', args.map(a => (a instanceof Error ? a.toString() : (typeof a === 'object' ? safeStringify(a) : String(a)))).join(' '));
+};
+console.warn = (...args) => {
+    originalConsoleWarn(...args);
+    addUnifiedLog('SERVER', 'WARN', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
+};
+console.info = (...args) => {
+    originalConsoleInfo(...args);
+    addUnifiedLog('SERVER', 'INFO', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
+};
+
+
+
+
 // Ensure database directory and file exist
 function ensureDB() {
   const dir = path.dirname(DB_PATH);
@@ -301,6 +347,29 @@ app.post('/api/auth/register', (req, res) => {
   res.json({ success: true, user: newUser });
 });
 
+// Unified System Logs API
+app.get('/api/admin/logs', (req, res) => {
+  res.json({ success: true, logs: unifiedSystemLogs });
+});
+
+app.post('/api/admin/logs/client', express.json(), (req, res) => {
+  const { logs } = req.body;
+  if (Array.isArray(logs)) {
+      logs.forEach(log => {
+          unifiedSystemLogs.unshift(log);
+      });
+      if (unifiedSystemLogs.length > MAX_LOGS) {
+          unifiedSystemLogs = unifiedSystemLogs.slice(0, MAX_LOGS);
+      }
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/admin/logs/clear', (req, res) => {
+    unifiedSystemLogs = [];
+    res.json({ success: true });
+});
+
 app.post('/api/auth/login', (req, res) => {
   const { credential, password, isGoogleAuth } = req.body; // credential can be email or username
   const db = readDB();
@@ -453,11 +522,12 @@ app.post('/api/attendance/check-in', (req, res) => {
   }
 
   // Device binding check
-  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
-    return res.status(400).json({
-      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
-    });
-  }
+  // Temporarily disabled due to bug reports from Android WebView
+  // if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+  //   return res.status(400).json({
+  //     error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+  //   });
+  // }
 
   // Determine locations & geofences
   const locations = db.locations;
@@ -482,10 +552,8 @@ app.post('/api/attendance/check-in', (req, res) => {
     });
   }
 
-  // Bind device if not already bound
-  if (!user.lastCheckInDevice) {
-    user.lastCheckInDevice = device;
-  }
+  // Track latest device info but do not hard lock
+  user.lastCheckInDevice = device;
 
   // Update user live position metadata
   user.currentLat = lat;
@@ -649,11 +717,12 @@ app.post('/api/attendance/check-out', (req, res) => {
   }
 
   // Device binding check for checkout
-  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
-    return res.status(400).json({
-      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
-    });
-  }
+  // Temporarily disabled due to bug reports from Android WebView
+  // if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+  //   return res.status(400).json({
+  //     error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+  //   });
+  // }
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
