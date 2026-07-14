@@ -11,10 +11,10 @@
       "position": "Director",
       "photoUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
       "leaveQuota": {
-        "libur": 4,
+        "libur": 3,
         "telat": 2,
         "telatDarurat": 2,
-        "pulangCepat": 3
+        "pulangCepat": 2
       },
       "lastCheckInDevice": "PC-Admin-01",
       "currentLat": -6.2088,

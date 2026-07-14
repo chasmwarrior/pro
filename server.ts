@@ -32,51 +32,6 @@ app.use(express.urlencoded({ limit: '15mb', extended: true }));
 
 const DB_PATH = path.join(process.cwd(), 'src', 'db', 'db.json');
 
-// Memory Buffer for System Logs
-let unifiedSystemLogs: string[] = [];
-const MAX_LOGS = 2000;
-
-function addUnifiedLog(source: 'SERVER' | 'CLIENT', level: string, message: string) {
-    const time = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const logStr = `[${time}] [${source}] [${level}] ${message}`;
-    unifiedSystemLogs.unshift(logStr);
-    if (unifiedSystemLogs.length > MAX_LOGS) {
-        unifiedSystemLogs.pop();
-    }
-}
-
-// Intercept server console logs
-const originalConsoleLog = console.log;
-const originalConsoleError = console.error;
-const originalConsoleWarn = console.warn;
-const originalConsoleInfo = console.info;
-
-
-const safeStringify = (obj: any) => {
-    try {
-        return JSON.stringify(obj);
-    } catch (e) {
-        return '[Unserializable/Circular Object]';
-    }
-};
-
-console.log = (...args) => {
-    originalConsoleLog(...args);
-    addUnifiedLog('SERVER', 'INFO', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
-};
-console.error = (...args) => {
-    originalConsoleError(...args);
-    addUnifiedLog('SERVER', 'ERROR', args.map(a => (a instanceof Error ? a.toString() : (typeof a === 'object' ? safeStringify(a) : String(a)))).join(' '));
-};
-console.warn = (...args) => {
-    originalConsoleWarn(...args);
-    addUnifiedLog('SERVER', 'WARN', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
-};
-console.info = (...args) => {
-    originalConsoleInfo(...args);
-    addUnifiedLog('SERVER', 'INFO', args.map(a => typeof a === 'object' ? safeStringify(a) : String(a)).join(' '));
-};
-
 // Ensure database directory and file exist
 function ensureDB() {
   const dir = path.dirname(DB_PATH);
@@ -245,42 +200,12 @@ function timeStrToMinutes(timeStr: string): number {
   return h * 60 + m + s / 60;
 }
 
-// Calculate late fine or bonus based on dynamic config rules (SOP 1 Juli 2026)
-function calculateDynamicIncentives(timeStr: string, rules: any[], isCourierManual = false): { fineAmount: number, bonusAmount: number } {
+// Calculate late fine or bonus based on dynamic config rules
+function calculateDynamicIncentives(timeStr: string, rules: any[]): { fineAmount: number, bonusAmount: number } {
   const checkInMinutes = timeStrToMinutes(timeStr);
   let fineAmount = 0;
   let bonusAmount = 0;
 
-  const startMinutes = 10 * 60; // 10:00 WIB
-  const diffMinutes = checkInMinutes - startMinutes;
-
-  if (isCourierManual) {
-    // SOP Section 7: Kurir Absen Manual
-    if (diffMinutes > 120 && diffMinutes <= 150) fineAmount = 30000;
-    else if (diffMinutes > 150 && diffMinutes <= 180) fineAmount = 40000;
-    else if (diffMinutes > 180 && diffMinutes <= 210) fineAmount = 50000;
-    else if (diffMinutes > 210) {
-        const extraIntervals = Math.ceil((diffMinutes - 210) / 30);
-        fineAmount = 50000 + (extraIntervals * 10000);
-    }
-  } else {
-    // SOP Section 6: Pekerja Normal
-    if (diffMinutes >= 11 && diffMinutes <= 30) fineAmount = 5000;
-    else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 10000;
-    else if (diffMinutes > 60 && diffMinutes <= 90) fineAmount = 15000;
-    else if (diffMinutes > 90 && diffMinutes <= 120) fineAmount = 20000;
-    else if (diffMinutes > 120 && diffMinutes <= 150) fineAmount = 30000;
-    else if (diffMinutes > 150 && diffMinutes <= 180) fineAmount = 40000;
-    else if (diffMinutes > 180 && diffMinutes <= 210) fineAmount = 50000;
-    else if (diffMinutes > 210) {
-        const extraIntervals = Math.ceil((diffMinutes - 210) / 30);
-        fineAmount = 50000 + (extraIntervals * 10000);
-    } else if (diffMinutes <= 0) {
-        bonusAmount = 10000; // Legacy Tepat Waktu fallback
-    }
-  }
-
-  // Also apply any dynamic DB rules on top if they exist
   if (rules && Array.isArray(rules) && rules.length > 0) {
     for (const rule of rules) {
       if (!rule || !rule.startTime || !rule.endTime) continue;
@@ -292,11 +217,18 @@ function calculateDynamicIncentives(timeStr: string, rules: any[], isCourierManu
           fineAmount = Math.max(fineAmount, Number(rule.amount) || 0); // Take highest applicable fine
         } else if (rule.type === 'bonus') {
           bonusAmount += (Number(rule.amount) || 0); // Accumulate bonuses
-        } else if (rule.type === 'lembur') {
-          bonusAmount += (Number(rule.amount) || 0); // Accumulate overtime
         }
       }
     }
+  } else {
+    // Legacy fallback to SOP 2026 hardcoded logic if no dynamic rules
+    const startMinutes = 10 * 60; // 10:00 WIB
+    const diffMinutes = checkInMinutes - startMinutes;
+
+    if (diffMinutes > 10 && diffMinutes <= 30) fineAmount = 5000;
+    else if (diffMinutes > 30 && diffMinutes <= 60) fineAmount = 50000;
+    else if (diffMinutes > 60) fineAmount = 100000;
+    else bonusAmount = 25000; // Legacy bonusTepatWaktu
   }
 
   return { fineAmount, bonusAmount };
@@ -559,7 +491,7 @@ app.post('/api/attendance/check-in', (req, res) => {
   // Handle core metrics
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
-  let timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
+  const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
 
   // Check if already checked in today
   const existingRecord = db.attendanceRecords.find((r: any) => r.userId === userId && r.date === dateStr);
@@ -620,7 +552,7 @@ app.post('/api/attendance/check-in', (req, res) => {
           note = `Terlambat masuk ke-${previousLateCount + 1} (Dalam jatah & tiba sebelum 13:00, Bebas Denda).`;
         } else {
           // Arrived after 13:00 WIB
-          fineAmount = calculateDynamicIncentives(timeStr, db.config.rules).fineAmount;
+          fineAmount = calculateLateFine(timeStr);
           usedQuotaType = 'telat';
           if (user.leaveQuota.telat > 0) {
             user.leaveQuota.telat -= 1;
@@ -704,7 +636,7 @@ app.post('/api/attendance/check-in', (req, res) => {
 
 app.post('/api/attendance/check-out', (req, res) => {
   try {
-  const { userId, lat, lng, device, isOvertimePending } = req.body;
+  const { userId, lat, lng, device } = req.body;
   const db = readDB();
 
   const user = db.users.find((u: any) => u.id === userId);
@@ -721,7 +653,7 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
-  let timeStr = now.toTimeString().split(' ')[0];
+  const timeStr = now.toTimeString().split(' ')[0];
 
   const recordIdx = db.attendanceRecords.findIndex((r: any) => r.userId === userId && r.date === dateStr);
   if (recordIdx === -1) {
@@ -754,16 +686,7 @@ app.post('/api/attendance/check-out', (req, res) => {
   let isEarlyOutViolation = false;
   let checkoutNote = '';
 
-  if (isOvertimePending) {
-    db.attendanceRecords[recordIdx].status = 'pending';
-    db.attendanceRecords[recordIdx].isOvertimePending = true;
-    checkoutNote = `Checkout Overtime pada ${timeStr}. Menunggu persetujuan admin.`;
-  } else if (hours >= 20) {
-    checkoutNote = `Pulang kerja di jam normal (${timeStr}).`
-    if (hours >= 20 && !isOvertimePending) {
-         timeStr = '20:00:00'; // clamp to normal checkout time unless overtime
-    }
-  } else if (isEarlyOut) {
+  if (isEarlyOut) {
     const currentMonthStr = dateStr.substring(0, 7);
     const previousEarlyOuts = db.attendanceRecords.filter((r: any) => 
       r.userId === userId && 
@@ -936,46 +859,6 @@ app.post('/api/leaves/cancel', (req, res) => {
   res.json({ success: true, message: 'Pengajuan libur berhasil dibatalkan.' });
 });
 
-// Admin approves a pending checkout (overtime)
-app.post('/api/attendance/approve-overtime', (req, res) => {
-  const { recordId, action } = req.body;
-  const db = readDB();
-
-  const recordIdx = db.attendanceRecords.findIndex((r: any) => r.id === recordId);
-  if (recordIdx === -1) {
-    return res.status(404).json({ error: 'Catatan absensi tidak ditemukan.' });
-  }
-
-  const record = db.attendanceRecords[recordIdx];
-
-  if (action === 'approve') {
-    record.status = 'approved';
-    record.isOvertimePending = false;
-    if (!record.note?.includes('Disetujui')) {
-        record.note = record.note ? record.note.replace('Menunggu persetujuan admin.', 'Disetujui Admin.') : 'Overtime Disetujui';
-        // Optionally calculate overtime bonus here using config
-        const overtimeBonus = calculateDynamicIncentives(record.checkOutTime || "21:00:00", db.config.rules).bonusAmount;
-        record.bonusAmount = (record.bonusAmount || 0) + overtimeBonus;
-    }
-  } else {
-    record.status = 'rejected'; // Show as rejected in history
-    record.isOvertimePending = false;
-    // Overtime denied, we do NOT overwrite checkout time so it can be reverted!
-    if (!record.note?.includes('Ditolak')) {
-        record.note = record.note ? record.note.replace('Menunggu persetujuan admin.', 'Ditolak Admin.') : 'Overtime Ditolak';
-        // Reverse bonus if it was previously approved
-        if (record.note?.includes('Disetujui Admin')) {
-           const overtimeBonus = calculateDynamicIncentives(record.checkOutTime || "21:00:00", db.config.rules).bonusAmount;
-           record.bonusAmount = Math.max(0, (record.bonusAmount || 0) - overtimeBonus);
-           record.note = record.note.replace('Disetujui Admin.', 'Ditolak Admin.');
-        }
-    }
-  }
-
-  writeDB(db);
-  res.json({ success: true, record });
-});
-
 // Admin approves a pending check-in (outside office or late)
 
 app.post('/api/attendance/approve-pending', (req, res) => {
@@ -999,7 +882,6 @@ app.post('/api/attendance/approve-pending', (req, res) => {
 
   if (action === 'approve') {
     record.status = 'approved';
-    record.isOvertimePending = false;
     record.isManualCheckIn = (classification === 'manual');
     if (classification === 'manual') {
       record.manualCheckInTime = record.checkInTime;
@@ -1024,7 +906,7 @@ app.post('/api/attendance/approve-pending', (req, res) => {
       record.fineAmount = Number(customFineValue || 0);
     } else {
       // 'auto' calculation
-      record.fineAmount = calculateDynamicIncentives(record.checkInTime, db.config.rules).fineAmount;
+      record.fineAmount = calculateLateFine(record.checkInTime);
     }
 
     // Construct a detailed log/note
@@ -1043,7 +925,6 @@ app.post('/api/attendance/approve-pending', (req, res) => {
     record.note = `Absen DISETUJUI oleh Admin/Supervisor. [Klasifikasi: ${classificationNames[classification] || classification}] [Sanksi: Rp ${record.fineAmount.toLocaleString('id-ID')}] [Jatah: ${quotaNames[quotaDeduction] || quotaDeduction}].`;
   } else {
     record.status = 'rejected';
-    record.isOvertimePending = false;
     record.note = 'Absen ditolak oleh Admin/Supervisor karena liveness tidak valid atau melanggar batas geofence.';
   }
 
@@ -1275,66 +1156,6 @@ app.post('/api/locations/delete', (req, res) => {
   db.locations = db.locations.filter((l: any) => l.id !== id);
   writeDB(db);
   res.json({ success: true });
-});
-
-app.post('/api/admin/manual-checkout', (req, res) => {
-  const { userId, timeStr, note } = req.body;
-  const db = readDB();
-
-  const user = db.users.find((u: any) => u.id === userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User tidak ditemukan.' });
-  }
-
-  const now = new Date();
-  const dateStr = now.toISOString().split('T')[0];
-
-  const recordIdx = db.attendanceRecords.findIndex((r: any) => r.userId === userId && r.date === dateStr);
-  if (recordIdx === -1) {
-    return res.status(400).json({ error: 'Pegawai belum melakukan Check-In hari ini.' });
-  }
-
-  if (db.attendanceRecords[recordIdx].checkOutTime) {
-    return res.status(400).json({ error: 'Pegawai sudah melakukan Check-Out hari ini.' });
-  }
-
-  const [hours] = timeStr.split(':').map(Number);
-  const isEarlyOut = hours < 20;
-
-  if (isEarlyOut && user.leaveQuota.pulangCepat > 0) {
-      user.leaveQuota.pulangCepat -= 1;
-  }
-
-  db.attendanceRecords[recordIdx].checkOutTime = timeStr + ":00";
-  db.attendanceRecords[recordIdx].isEarlyOut = isEarlyOut;
-  db.attendanceRecords[recordIdx].checkOutLocationName = "Checkout Manual (Admin)";
-  db.attendanceRecords[recordIdx].note = `${db.attendanceRecords[recordIdx].note || ''} | Checkout Manual Admin (${timeStr}): ${note}`;
-
-  writeDB(db);
-  res.json({ success: true, record: db.attendanceRecords[recordIdx] });
-});
-
-// Unified System Logs API
-app.get('/api/admin/logs', (req, res) => {
-  res.json({ success: true, logs: unifiedSystemLogs });
-});
-
-app.post('/api/admin/logs/client', (req, res) => {
-  const { logs } = req.body; // Expecting array of strings: "[time] [level] message"
-  if (Array.isArray(logs)) {
-      logs.forEach(log => {
-          unifiedSystemLogs.unshift(log); // already formatted by client
-      });
-      if (unifiedSystemLogs.length > MAX_LOGS) {
-          unifiedSystemLogs = unifiedSystemLogs.slice(0, MAX_LOGS);
-      }
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/admin/logs/clear', (req, res) => {
-    unifiedSystemLogs = [];
-    res.json({ success: true });
 });
 
 // 8. Announcements (Pengumuman)

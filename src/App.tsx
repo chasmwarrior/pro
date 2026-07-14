@@ -552,12 +552,10 @@ export default function App() {
 
   const generateDeviceFingerprint = () => {
     let fingerprint = localStorage.getItem('device_fingerprint');
-    // Also try checking cookie in case Android clears localStorage but keeps cookies
     if (!fingerprint) {
        const match = document.cookie.match(new RegExp('(^| )device_fingerprint=([^;]+)'));
        if (match) fingerprint = match[2];
     }
-
     if (!fingerprint) {
       const userAgent = navigator.userAgent;
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
@@ -565,11 +563,8 @@ export default function App() {
       const randomId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
       fingerprint = `${isMobile ? 'Mobile' : 'Desktop'}-${platform.split(' ')[0]}-${randomId}`;
     }
-
-    // Always enforce saving on both mediums
     localStorage.setItem('device_fingerprint', fingerprint);
     document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
-
     setDeviceFingerprint(fingerprint);
   };
 
@@ -1038,10 +1033,11 @@ export default function App() {
     const currentHour = serverTime.getHours();
     let isOvertimePending = false;
     if (currentHour < 20) {
-        if (!confirm("Peringatan: Anda akan di kenakan status pulang cepat jika checkout saat ini. Apakah Anda yakin?")) return;
+        if (!window.confirm("Peringatan: Anda akan di kenakan status pulang cepat jika checkout saat ini. Apakah Anda yakin?")) return;
     } else if (currentHour >= 20) {
-        if (confirm("Jam kerja berakhir. Apakah Anda ingin mengajukan LEMBUR? Jika Batal, sistem mencatat pulang normal (20:00).")) isOvertimePending = true;
+        if (window.confirm("Jam kerja berakhir. Apakah Anda ingin mengajukan LEMBUR? Jika Batal, sistem mencatat pulang normal (20:00).")) isOvertimePending = true;
     }
+
     try {
       const res = await fetch('/api/attendance/check-out', {
         method: 'POST',
@@ -1359,6 +1355,8 @@ export default function App() {
     });
     if (res.ok) {
       fetchLeaveRequests();
+      syncCurrentUser();
+      fetchAllWorkers();
       setLeaveRemarks((prev) => {
         const next = { ...prev };
         delete next[requestId];
@@ -2732,52 +2730,6 @@ const monthlyKPIData = React.useMemo(() => {
                   
 
                 </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                    {/* QUOTA LIBUR */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shadow-sm">
-                        <CalendarIcon className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Sisa Libur</span>
-                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-xs font-medium text-slate-400">/ 4</span></p>
-                      </div>
-                    </div>
-
-                    {/* QUOTA TELAT */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm">
-                        <Clock className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Tol. Telat</span>
-                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
-                      </div>
-                    </div>
-
-                    {/* TELAT DARURAT */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shadow-sm">
-                        <AlertTriangle className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Telat Darurat</span>
-                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
-                      </div>
-                    </div>
-
-                    {/* PULANG CEPAT */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shadow-sm">
-                        <LogOut className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Pulang Cepat</span>
-                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-xs font-medium text-slate-400">/ 3</span></p>
-                      </div>
-                    </div>
-                  </div>
 
                               {/* ----------------------------------------------------------------------
                    DEVICE PERMISSIONS BANNER / COMPONENT
@@ -4325,67 +4277,6 @@ const monthlyKPIData = React.useMemo(() => {
                         Simpan Semua Pengaturan Platform
                       </button>
                     </form>
-                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm mt-6">
-                      <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-                        <h4 className="font-display font-bold text-sm text-slate-800">Riwayat Persetujuan</h4>
-                        <p className="text-xs text-slate-500 mt-0.5">Daftar keputusan yang sudah diambil (Libur/Absensi/Lembur). Anda dapat mengubah kembali keputusan jika terjadi kesalahan.</p>
-                      </div>
-                      <div className="p-5 space-y-4">
-                        {/* Leave Requests History */}
-                        <h5 className="text-xs font-bold text-slate-600 uppercase">Libur</h5>
-                        {leaveRequests.filter(l => l.status === 'approved' || l.status === 'rejected').length > 0 ? (
-                          leaveRequests.filter(l => l.status === 'approved' || l.status === 'rejected').map(leave => (
-                            <div key={leave.id} className="border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50">
-                              <div>
-                                <h5 className="font-bold text-sm text-slate-800">{leave.username} <span className="font-normal text-slate-500">({leave.division})</span></h5>
-                                <span className={`text-[9px] px-2 py-0.5 rounded font-bold ${leave.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                   {leave.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'}
-                                </span>
-                                <p className="text-xs text-slate-500 mt-1">Pengajuan: {leave.date} - {leave.notes}</p>
-                              </div>
-                              <div className="flex flex-col gap-2 shrink-0">
-                                {leave.status === 'rejected' && <button type="button" onClick={() => handleApproveLeaveRequest(leave.id, true)} className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Disetujui</button>}
-                                {leave.status === 'approved' && <button type="button" onClick={() => handleApproveLeaveRequest(leave.id, false)} className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Ditolak</button>}
-                              </div>
-                            </div>
-                          ))
-                        ) : <div className="text-center py-6 text-sm text-slate-400">Tidak ada riwayat persetujuan libur.</div>}
-
-                        {/* Attendance History */}
-                        <h5 className="text-xs font-bold text-slate-600 uppercase mt-4 border-t pt-4">Absensi / Lembur</h5>
-                        {attendanceRecords.filter(r => (r.status === 'approved' || r.status === 'rejected') && (r.isManualCheckIn || r.isOutsideGeofence || r.note?.includes('Lembur') || r.note?.includes('Overtime'))).length > 0 ? (
-                          attendanceRecords.filter(r => (r.status === 'approved' || r.status === 'rejected') && (r.isManualCheckIn || r.isOutsideGeofence || r.note?.includes('Lembur') || r.note?.includes('Overtime'))).map(rec => (
-                            <div key={rec.id} className="border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50">
-                              <div>
-                                <h5 className="font-bold text-sm text-slate-800">{rec.username} <span className="font-normal text-slate-500">({rec.division})</span></h5>
-                                <span className={`text-[9px] px-2 py-0.5 rounded font-bold ${rec.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                   {rec.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'}
-                                </span>
-                                <p className="text-xs text-slate-500 mt-1">Tanggal: {rec.date}</p>
-                                <p className="text-xs text-slate-500 mt-1">Catatan: {rec.note}</p>
-                              </div>
-                              <div className="flex flex-col gap-2 shrink-0">
-                                {rec.status === 'rejected' && <button type="button" onClick={() => {
-                                      if (rec.note?.includes('Overtime') || rec.note?.includes('Lembur')) {
-                                          handleApproveOvertime(rec.id, 'approve');
-                                      } else {
-                                          const isManual = rec.isManualCheckIn ? 'manual' : (rec.note?.includes('Darurat') ? 'emergency' : 'standard');
-                                          handleApproveAttendance(rec.id, 'approve', isManual, 'none', 'auto', 0);
-                                      }
-                                }} className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Disetujui</button>}
-                                {rec.status === 'approved' && <button type="button" onClick={() => {
-                                      if (rec.note?.includes('Overtime') || rec.note?.includes('Lembur')) {
-                                          handleApproveOvertime(rec.id, 'reject');
-                                      } else {
-                                          handleApproveAttendance(rec.id, 'reject', 'standard', 'none', 'auto', 0);
-                                      }
-                                }} className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] px-3 py-1.5 rounded font-bold">Ubah jadi Ditolak</button>}
-                              </div>
-                            </div>
-                          ))
-                        ) : <div className="text-center py-6 text-sm text-slate-400">Tidak ada riwayat persetujuan absensi/lembur.</div>}
-                      </div>
-                    </div>
                   </div>
                 )}
 
