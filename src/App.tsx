@@ -557,14 +557,16 @@ export default function App() {
        if (match) fingerprint = match[2];
     }
     if (!fingerprint) {
-      const userAgent = navigator.userAgent;
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-      const platform = navigator.platform || 'Unknown';
-      const randomId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-      fingerprint = `${isMobile ? 'Mobile' : 'Desktop'}-${platform.split(' ')[0]}-${randomId}`;
+      // Create a super stable identifier fallback
+      const randomId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      fingerprint = `DEVICE-${randomId}`;
+      localStorage.setItem('device_fingerprint', fingerprint);
+      document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
+    } else {
+      // Force rewrite to ensure it stays pinned
+      localStorage.setItem('device_fingerprint', fingerprint);
+      document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
     }
-    localStorage.setItem('device_fingerprint', fingerprint);
-    document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
     setDeviceFingerprint(fingerprint);
   };
 
@@ -2516,6 +2518,53 @@ const monthlyKPIData = React.useMemo(() => {
                       {serverTime.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                     </p>
                   </div>
+                </div>
+
+                {/* Quota Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    {/* QUOTA LIBUR */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shadow-sm">
+                        <CalendarIcon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Sisa Libur</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-xs font-medium text-slate-400">/ 4</span></p>
+                      </div>
+                    </div>
+
+                    {/* QUOTA TELAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Tol. Telat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
+                      </div>
+                    </div>
+
+                    {/* TELAT DARURAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shadow-sm">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Telat Darurat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
+                      </div>
+                    </div>
+
+                    {/* PULANG CEPAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shadow-sm">
+                        <LogOut className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Pulang Cepat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-xs font-medium text-slate-400">/ 3</span></p>
+                      </div>
+                    </div>
                 </div>
 
                                 {/* Geofence / Check-In Live Module */}
