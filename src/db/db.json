@@ -11,10 +11,10 @@
       "position": "Director",
       "photoUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
       "leaveQuota": {
-        "libur": 3,
+        "libur": 4,
         "telat": 2,
         "telatDarurat": 2,
-        "pulangCepat": 2
+        "pulangCepat": 3
       },
       "lastCheckInDevice": "PC-Admin-01",
       "currentLat": -6.2088,
@@ -58,10 +58,10 @@
         "telatDarurat": 2,
         "pulangCepat": 3
       },
-      "lastCheckInDevice": "Android-Budi-S21",
-      "currentLat": -6.2091,
-      "currentLng": 106.8461,
-      "lastActiveAt": "2026-07-09T23:05:00.000Z"
+      "lastCheckInDevice": "testing",
+      "currentLat": -6.2088,
+      "currentLng": 106.8456,
+      "lastActiveAt": "2026-07-14T08:40:10.936Z"
     },
     {
       "id": "u4",
@@ -154,6 +154,30 @@
       "checkOutLng": 106.8456,
       "checkOutLocationName": "Kantor Pusat Jakarta",
       "isEarlyOutViolation": true
+    },
+    {
+      "id": "att_a772n69tm",
+      "userId": "u3",
+      "username": "budi",
+      "division": "Logistics",
+      "date": "2026-07-14",
+      "checkInTime": "08:40:10",
+      "checkInLat": -6.2088,
+      "checkInLng": 106.8456,
+      "checkInLocationName": "Kantor Pusat Jakarta",
+      "isLate": false,
+      "isEarlyOut": false,
+      "isOutsideGeofence": false,
+      "livenessPhotoUrl": null,
+      "status": "approved",
+      "fineAmount": 0,
+      "bonusAmount": 10000,
+      "note": "Tepat waktu (Bonus didapatkan).",
+      "isManualCheckIn": false,
+      "manualCheckInTime": null,
+      "arrivalTimeAtWarehouse": null,
+      "isConfirmedToBoss": false,
+      "usedQuotaType": null
     }
   ],
   "leaveRequests": [

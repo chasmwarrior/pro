@@ -7,6 +7,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 
 
+
+import { EventEmitter } from 'events';
+EventEmitter.defaultMaxListeners = 50;
+
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
@@ -552,7 +556,7 @@ app.post('/api/attendance/check-in', (req, res) => {
           note = `Terlambat masuk ke-${previousLateCount + 1} (Dalam jatah & tiba sebelum 13:00, Bebas Denda).`;
         } else {
           // Arrived after 13:00 WIB
-          fineAmount = calculateLateFine(timeStr);
+          fineAmount = calculateDynamicIncentives(timeStr, db.config.rules).fineAmount;
           usedQuotaType = 'telat';
           if (user.leaveQuota.telat > 0) {
             user.leaveQuota.telat -= 1;
@@ -906,7 +910,7 @@ app.post('/api/attendance/approve-pending', (req, res) => {
       record.fineAmount = Number(customFineValue || 0);
     } else {
       // 'auto' calculation
-      record.fineAmount = calculateLateFine(record.checkInTime);
+      record.fineAmount = calculateDynamicIncentives(record.checkInTime, db.config.rules).fineAmount;
     }
 
     // Construct a detailed log/note
@@ -1156,6 +1160,44 @@ app.post('/api/locations/delete', (req, res) => {
   db.locations = db.locations.filter((l: any) => l.id !== id);
   writeDB(db);
   res.json({ success: true });
+});
+
+// Delete user
+app.delete('/api/admin/users/:id', (req, res) => {
+    const db = readDB();
+    const id = req.params.id;
+    const userIndex = db.users.findIndex((u: any) => u.id === id);
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'User tidak ditemukan' });
+    }
+    if (db.users[userIndex].role === 'admin') {
+         return res.status(400).json({ error: 'Tidak dapat menghapus admin utama' });
+    }
+    db.users.splice(userIndex, 1);
+
+    // Also remove their records
+    db.attendanceRecords = db.attendanceRecords.filter((r: any) => r.userId !== id);
+    db.leaveRequests = db.leaveRequests.filter((l: any) => l.userId !== id);
+
+    writeDB(db);
+    res.json({ success: true });
+});
+
+// Toggle Disable
+app.post('/api/admin/users/:id/toggle-disable', (req, res) => {
+    const db = readDB();
+    const id = req.params.id;
+    const userIndex = db.users.findIndex((u: any) => u.id === id);
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'User tidak ditemukan' });
+    }
+    if (db.users[userIndex].role === 'admin') {
+         return res.status(400).json({ error: 'Tidak dapat menonaktifkan admin utama' });
+    }
+
+    db.users[userIndex].disabled = !db.users[userIndex].disabled;
+    writeDB(db);
+    res.json({ success: true, disabled: db.users[userIndex].disabled });
 });
 
 // 8. Announcements (Pengumuman)

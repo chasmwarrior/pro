@@ -10,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
   Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp,
-  Menu, ClipboardList, Megaphone, Map
+  Menu, ClipboardList, Megaphone, Map, Terminal
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapView from './components/MapView';
@@ -584,28 +584,33 @@ export default function App() {
     }
   };
 
-  const trackDeviceLocation = () => {
-    if (!navigator.geolocation) {
-      setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
-      return;
-    }
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setDeviceLat(pos.coords.latitude);
-        setDeviceLng(pos.coords.longitude);
-        setPermissionStates(prev => ({ ...prev, gps: 'granted' }));
-        setIsLocating(false);
-      },
-      (err) => {
-        // Fallback to coordinates
-        setDeviceLat(-6.2088);
-        setDeviceLng(106.8456);
+  const trackDeviceLocation = (silent = false) => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
         setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+        resolve(false);
+        return;
+      }
+      if (!silent) setIsLocating(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setDeviceLat(pos.coords.latitude);
+          setDeviceLng(pos.coords.longitude);
+          setPermissionStates(prev => ({ ...prev, gps: 'granted' }));
+          if (!silent) setIsLocating(false);
+          resolve(true);
+        },
+        (err) => {
+          // Fallback to coordinates
+          setDeviceLat(-6.2088);
+          setDeviceLng(106.8456);
+          setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+          if (!silent) setIsLocating(false);
+          resolve(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
   };
 
   const requestGPSPermission = () => {
@@ -2519,48 +2524,51 @@ const monthlyKPIData = React.useMemo(() => {
 
 
                   {/* Left Column: Tracking Status / Controls */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6 shadow-sm text-slate-800">
-                    <div>
-                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block font-mono">Status Sistem Presensi</span>
-                      <h3 className="font-display font-black text-2xl text-slate-800 tracking-tight mt-1">Presensi Hari Ini</h3>
-                      <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-[85%]">
-                        Geofence membatasi radius absensi. Sistem menggunakan GPS & liveness wajah untuk keamanan ganda.
+                  <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between space-y-6 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 -mt-10 -mr-10 opacity-10 blur-xl">
+                       <MapPin className="w-64 h-64 text-indigo-400" />
+                    </div>
+
+                    <div className="relative z-10">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full uppercase tracking-widest font-mono border border-indigo-500/20">Modul Presensi</span>
+                        <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+                      </div>
+                      <h3 className="font-display font-black text-2xl text-white tracking-tight mt-4">Presensi Hari Ini</h3>
+                      <p className="text-xs text-slate-400 mt-1.5 leading-relaxed max-w-[85%]">
+                        Radius absensi masuk ke kantor/gudang dibatasi oleh Geofence. GPS live perangkat & liveness wajah digunakan untuk validasi ganda.
                       </p>
                     </div>
 
                     {isLocating && (
-                      <div className="bg-blue-50/80 border border-blue-100 p-4 rounded-2xl flex items-center gap-3 text-xs text-blue-600 shadow-inner">
-                        <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                      <div className="bg-indigo-500/20 border border-indigo-400/30 p-4 rounded-2xl flex items-center gap-3 text-xs text-indigo-200 shadow-inner relative z-10 backdrop-blur-md">
+                        <RefreshCw className="w-5 h-5 animate-spin text-indigo-400 shrink-0" />
                         <span className="font-medium">Menyinkronkan satelit GPS perangkat...</span>
                       </div>
                     )}
 
                     {!isLocating && (
-                      <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4 font-mono text-xs shadow-xl relative overflow-hidden group">
+                      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 space-y-4 font-mono text-xs shadow-xl relative z-10">
 
-                        <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4 group-hover:scale-110 transition-transform duration-500">
-                          <MapPin className="w-32 h-32 text-white" />
-                        </div>
-
-                        <div className="relative z-10 flex justify-between items-center">
-                          <span className="text-slate-400 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-400" /> Koordinat Anda:</span>
-                          <span className="text-blue-400 font-bold bg-blue-500/10 px-2 py-1 rounded-lg">
+                        <div className="flex justify-between items-center group">
+                          <span className="text-slate-400 flex items-center gap-2 group-hover:text-slate-300 transition-colors"><MapPin className="w-4 h-4 text-indigo-400" /> Koordinat Anda:</span>
+                          <span className="text-indigo-300 font-bold bg-indigo-500/10 px-2 py-1 rounded-lg border border-indigo-500/20 shadow-sm">
                             {deviceLat ? `${deviceLat.toFixed(5)}, ${deviceLng?.toFixed(5)}` : 'Sinyal Hilang'}
                           </span>
                         </div>
-                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
-                          <span className="text-slate-400 flex items-center gap-2"><Building2 className="w-4 h-4 text-emerald-400" /> Penempatan Kerja:</span>
+                        <div className="flex justify-between items-center border-t border-white/5 pt-4 group">
+                          <span className="text-slate-400 flex items-center gap-2 group-hover:text-slate-300 transition-colors"><Building2 className="w-4 h-4 text-emerald-400" /> Penempatan Kerja:</span>
                           <span className="text-slate-200 font-semibold text-right flex flex-col items-end">
                             {currentUser.division} <span className="text-[10px] text-slate-400">{currentUser.position}</span>
                           </span>
                         </div>
-                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
-                          <span className="text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-amber-400" /> Kunci Perangkat:</span>
+                        <div className="flex justify-between items-center border-t border-white/5 pt-4 group">
+                          <span className="text-slate-400 flex items-center gap-2 group-hover:text-slate-300 transition-colors"><Lock className="w-4 h-4 text-amber-400" /> Kunci Perangkat:</span>
                           <span className="text-slate-200 font-semibold">
                             {currentUser.lastCheckInDevice ? (
-                               <span className="flex items-center gap-1.5 text-emerald-400"><ShieldCheck className="w-4 h-4"/> Terkunci</span>
+                               <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20"><ShieldCheck className="w-4 h-4"/> Terkunci</span>
                             ) : (
-                               <span className="flex items-center gap-1.5 text-amber-400"><Unlock className="w-4 h-4"/> Belum Dikunci</span>
+                               <span className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20"><Unlock className="w-4 h-4"/> Belum Dikunci</span>
                             )}
                           </span>
                         </div>
@@ -4442,6 +4450,39 @@ const monthlyKPIData = React.useMemo(() => {
                                     className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
                                   >
                                     Pulang Cepat (Manual)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (worker.role === 'admin') return showCustomAlert("Tidak dapat menghapus admin utama.", "Error");
+                                      if (window.confirm(`Yakin ingin ${worker.disabled ? 'mengaktifkan' : 'menonaktifkan'} ${worker.username}?`)) {
+                                          try {
+                                              const res = await fetch(`/api/admin/users/${worker.id}/toggle-disable`, { method: 'POST' });
+                                              const data = await res.json();
+                                              if (res.ok) { showCustomAlert(`Akun berhasil ${data.disabled ? 'dinonaktifkan' : 'diaktifkan'}.`, "Sukses"); fetchAllWorkers(); }
+                                              else showCustomAlert(data.error || "Gagal.", "Error");
+                                          } catch(e) {}
+                                      }
+                                    }}
+                                    className={`${worker.disabled ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-amber-50 hover:bg-amber-100 text-amber-600 border-amber-200'} border font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer`}
+                                  >
+                                    {worker.disabled ? 'Aktifkan' : 'Nonaktifkan'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (worker.role === 'admin') return showCustomAlert("Tidak dapat menghapus admin utama.", "Error");
+                                      if (window.confirm(`Yakin ingin MENGHAPUS ${worker.username} secara permanen?`)) {
+                                          try {
+                                              const res = await fetch(`/api/admin/users/${worker.id}`, { method: 'DELETE' });
+                                              if (res.ok) { showCustomAlert("Akun berhasil dihapus.", "Sukses"); fetchAllWorkers(); }
+                                              else { const data = await res.json(); showCustomAlert(data.error || "Gagal menghapus.", "Error"); }
+                                          } catch(e) {}
+                                      }
+                                    }}
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Hapus
                                   </button>
                                   <button
                                     type="button"
