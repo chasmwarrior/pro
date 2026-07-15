@@ -89,7 +89,7 @@ function LocationMarker({ userLat, userLng }: { userLat: number | null, userLng:
   const map = useMap();
 
   useEffect(() => {
-    if (userLat !== null && userLng !== null) {
+    if (userLat !== null && userLng !== null && map) {
       map.flyTo([userLat, userLng], map.getZoom(), {
         animate: true,
         duration: 1.5 // Smooth transition
@@ -97,7 +97,9 @@ function LocationMarker({ userLat, userLng }: { userLat: number | null, userLng:
 
       // After flying, invalidate size to ensure no grey tiles
       setTimeout(() => {
-          map.invalidateSize();
+          if (map && map._container && map._container.offsetParent !== null) {
+               map.invalidateSize();
+          }
       }, 1500);
     }
   }, [userLat, userLng, map]);
@@ -115,12 +117,13 @@ function MapBoundsHandler({ locations, workers, radarMode, userLat, userLng }: a
 
     useEffect(() => {
         // Fix for modal showing grey tiles
-        setTimeout(() => {
-            map.invalidateSize();
-        }, 100);
-        setTimeout(() => {
-            map.invalidateSize();
-        }, 500);
+        const invalidate = () => {
+             if (map && map._container && map._container.offsetParent !== null) {
+                  map.invalidateSize();
+             }
+        };
+        setTimeout(invalidate, 100);
+        setTimeout(invalidate, 500);
 
         if (radarMode && workers && workers.length > 0) {
             const bounds = L.latLngBounds([]);

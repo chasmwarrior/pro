@@ -19,7 +19,7 @@
       "lastCheckInDevice": "PC-Admin-01",
       "currentLat": -6.2088,
       "currentLng": 106.8456,
-      "lastActiveAt": "2026-07-09T23:45:00.000Z"
+      "lastActiveAt": "2026-07-13T09:05:58.863Z"
     },
     {
       "id": "u2",
@@ -58,10 +58,10 @@
         "telatDarurat": 2,
         "pulangCepat": 3
       },
-      "lastCheckInDevice": "Android-Budi-S21",
-      "currentLat": -6.2091,
-      "currentLng": 106.8461,
-      "lastActiveAt": "2026-07-09T23:05:00.000Z"
+      "lastCheckInDevice": "testing",
+      "currentLat": -6.2088,
+      "currentLng": 106.8456,
+      "lastActiveAt": "2026-07-14T08:40:10.936Z"
     },
     {
       "id": "u4",
@@ -125,6 +125,59 @@
       "fineAmount": 50000,
       "bonusAmount": 0,
       "note": "Terlambat masuk 15 menit"
+    },
+    {
+      "id": "att_hql6zlrns",
+      "userId": "u1",
+      "username": "admin",
+      "division": "Management",
+      "date": "2026-07-13",
+      "checkInTime": "09:05:58",
+      "checkInLat": -6.2088,
+      "checkInLng": 106.8456,
+      "checkInLocationName": "Kantor Pusat Jakarta",
+      "isLate": false,
+      "isEarlyOut": true,
+      "isOutsideGeofence": false,
+      "livenessPhotoUrl": null,
+      "status": "approved",
+      "fineAmount": 0,
+      "bonusAmount": 0,
+      "note": "Tepat waktu (Bonus didapatkan). | Pulang cepat melanggar ketentuan (Pukul 09:23:47, ke-1 bulan ini). Bonus hari ini dibatalkan & jatah libur dipotong 1 hari.",
+      "isManualCheckIn": false,
+      "manualCheckInTime": null,
+      "arrivalTimeAtWarehouse": null,
+      "isConfirmedToBoss": false,
+      "usedQuotaType": null,
+      "checkOutTime": "09:23:47",
+      "checkOutLat": -6.2088,
+      "checkOutLng": 106.8456,
+      "checkOutLocationName": "Kantor Pusat Jakarta",
+      "isEarlyOutViolation": true
+    },
+    {
+      "id": "att_a772n69tm",
+      "userId": "u3",
+      "username": "budi",
+      "division": "Logistics",
+      "date": "2026-07-14",
+      "checkInTime": "08:40:10",
+      "checkInLat": -6.2088,
+      "checkInLng": 106.8456,
+      "checkInLocationName": "Kantor Pusat Jakarta",
+      "isLate": false,
+      "isEarlyOut": false,
+      "isOutsideGeofence": false,
+      "livenessPhotoUrl": null,
+      "status": "approved",
+      "fineAmount": 0,
+      "bonusAmount": 10000,
+      "note": "Tepat waktu (Bonus didapatkan).",
+      "isManualCheckIn": false,
+      "manualCheckInTime": null,
+      "arrivalTimeAtWarehouse": null,
+      "isConfirmedToBoss": false,
+      "usedQuotaType": null
     }
   ],
   "leaveRequests": [
@@ -180,11 +233,46 @@
     },
     "dendaTelat": 50000,
     "rules": [
-      {"id": "r1", "name": "Bonus Tepat Waktu (Pagi)", "startTime": "00:00", "endTime": "10:00", "type": "bonus", "amount": 10000},
-      {"id": "r2", "name": "Denda Telat Ringan", "startTime": "10:01", "endTime": "10:30", "type": "denda", "amount": 5000},
-      {"id": "r3", "name": "Denda Telat Sedang", "startTime": "10:31", "endTime": "11:00", "type": "denda", "amount": 50000},
-      {"id": "r4", "name": "Denda Telat Berat", "startTime": "11:01", "endTime": "23:59", "type": "denda", "amount": 100000},
-      {"id": "r5", "name": "Lembur Jam ke-1", "startTime": "20:01", "endTime": "21:00", "type": "lembur", "amount": 20000}
+      {
+        "id": "r1",
+        "name": "Bonus Tepat Waktu (Pagi)",
+        "startTime": "00:00",
+        "endTime": "10:00",
+        "type": "bonus",
+        "amount": 10000
+      },
+      {
+        "id": "r2",
+        "name": "Denda Telat Ringan",
+        "startTime": "10:01",
+        "endTime": "10:30",
+        "type": "denda",
+        "amount": 5000
+      },
+      {
+        "id": "r3",
+        "name": "Denda Telat Sedang",
+        "startTime": "10:31",
+        "endTime": "11:00",
+        "type": "denda",
+        "amount": 50000
+      },
+      {
+        "id": "r4",
+        "name": "Denda Telat Berat",
+        "startTime": "11:01",
+        "endTime": "23:59",
+        "type": "denda",
+        "amount": 100000
+      },
+      {
+        "id": "r5",
+        "name": "Lembur Jam ke-1",
+        "startTime": "20:01",
+        "endTime": "21:00",
+        "type": "lembur",
+        "amount": 20000
+      }
     ],
     "bonusTepatWaktu": 25000,
     "bonusDisiplinBulanan": 200000,

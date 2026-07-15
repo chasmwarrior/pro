@@ -10,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
   Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp,
-  Menu, ClipboardList, Megaphone, Map
+  Menu, ClipboardList, Megaphone, Map, Terminal
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapView from './components/MapView';
@@ -98,6 +98,12 @@ export default function App() {
       message,
       onConfirm: () => setCustomDialog(prev => ({ ...prev, isOpen: false }))
     });
+    setTimeout(() => {
+        setCustomDialog(prev => {
+            if (prev.isOpen && prev.type === 'alert' && prev.message === message) return { ...prev, isOpen: false };
+            return prev;
+        });
+    }, 3500);
   };
 
   const showCustomConfirm = (message: string, onConfirm: () => void, title = "Konfirmasi") => {
@@ -262,28 +268,48 @@ export default function App() {
     const originalError = console.error;
     const originalWarn = console.warn;
 
+    const originalDebug = console.debug;
+    const originalInfo = console.info;
+
     const addLog = (level: string, ...args: any[]) => {
       try {
-        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        const msg = args.map(a => {
+            if (a instanceof Error) return a.toString();
+            if (typeof a === 'object') {
+                try { return JSON.stringify(a); } catch(e) { return '[Unserializable Object]'; }
+            }
+            return String(a);
+        }).join(' ');
+        const time = new Date().toLocaleTimeString();
         logsRef.current = [`[${time}] [${level}] ${msg}`, ...logsRef.current].slice(0, 50);
         // We only trigger state updates on explicit user interaction or interval, not synchronously
       } catch(e) {}
     };
 
-    console.log = (...args) => { originalLog(...args); addLog('INFO', ...args); };
+    console.log = (...args) => { originalLog(...args); addLog('LOG', ...args); };
     console.error = (...args) => { originalError(...args); addLog('ERROR', ...args); };
     console.warn = (...args) => { originalWarn(...args); addLog('WARN', ...args); };
+    console.debug = (...args) => { originalDebug(...args); addLog('DEBUG', ...args); };
+    console.info = (...args) => { originalInfo(...args); addLog('INFO', ...args); };
 
-    // Update the visual logs state once every 2 seconds to avoid render thrashing
+    // Update the visual logs state fast (only if we aren't looking at the unified server logs tab)
     const interval = setInterval(() => {
-        setDebugLogs([...logsRef.current]);
-    }, 2000);
+        setDebugLogs(prev => {
+           // Hack to access current state context within the interval
+           const isViewingServerLogs = window.location.hash === '#admin-logs';
+           if (!isViewingServerLogs) {
+              return [...logsRef.current];
+           }
+           return prev;
+        });
+    }, 500);
 
     return () => {
       console.log = originalLog;
       console.error = originalError;
       console.warn = originalWarn;
+      console.debug = originalDebug;
+      console.info = originalInfo;
       clearInterval(interval);
     };
   }, [isDebugMode]);
@@ -482,6 +508,14 @@ export default function App() {
     return () => clearInterval(interval);
   }, [adminSubTab, isAutoRefreshRadar, radarRefreshInterval]);
 
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'logs') {
+        fetchAdminLogs();
+        const interval = setInterval(fetchAdminLogs, 2000);
+        return () => clearInterval(interval);
+    }
+  }, [activeTab, adminSubTab]);
+
   // Track coordinates in background and manage global events
   useEffect(() => {
     trackDeviceLocation();
@@ -524,12 +558,22 @@ export default function App() {
   }, []);
 
   const generateDeviceFingerprint = () => {
-    // Generate simple readable mockup browser fingerprint for device binding
-    const userAgent = navigator.userAgent;
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-    const platform = navigator.platform || 'Unknown';
-    const screenWidth = window.screen.width;
-    const fingerprint = `${isMobile ? 'Mobile' : 'Desktop'}-${platform.split(' ')[0]}-${screenWidth}px`;
+    let fingerprint = localStorage.getItem('device_fingerprint');
+    if (!fingerprint) {
+       const match = document.cookie.match(new RegExp('(^| )device_fingerprint=([^;]+)'));
+       if (match) fingerprint = match[2];
+    }
+    if (!fingerprint) {
+      // Create a super stable identifier fallback
+      const randomId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      fingerprint = `DEVICE-${randomId}`;
+      localStorage.setItem('device_fingerprint', fingerprint);
+      document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
+    } else {
+      // Force rewrite to ensure it stays pinned
+      localStorage.setItem('device_fingerprint', fingerprint);
+      document.cookie = `device_fingerprint=${fingerprint}; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/`;
+    }
     setDeviceFingerprint(fingerprint);
   };
 
@@ -549,28 +593,33 @@ export default function App() {
     }
   };
 
-  const trackDeviceLocation = () => {
-    if (!navigator.geolocation) {
-      setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
-      return;
-    }
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setDeviceLat(pos.coords.latitude);
-        setDeviceLng(pos.coords.longitude);
-        setPermissionStates(prev => ({ ...prev, gps: 'granted' }));
-        setIsLocating(false);
-      },
-      (err) => {
-        // Fallback to coordinates
-        setDeviceLat(-6.2088);
-        setDeviceLng(106.8456);
+  const trackDeviceLocation = (silent = false) => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
         setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+        resolve(false);
+        return;
+      }
+      if (!silent) setIsLocating(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setDeviceLat(pos.coords.latitude);
+          setDeviceLng(pos.coords.longitude);
+          setPermissionStates(prev => ({ ...prev, gps: 'granted' }));
+          if (!silent) setIsLocating(false);
+          resolve(true);
+        },
+        (err) => {
+          // Fallback to coordinates
+          setDeviceLat(-6.2088);
+          setDeviceLng(106.8456);
+          setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+          if (!silent) setIsLocating(false);
+          resolve(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
   };
 
   const requestGPSPermission = () => {
@@ -649,6 +698,28 @@ export default function App() {
       console.error(e);
     }
   };
+
+  const fetchAdminLogs = async () => {
+    try {
+        const res = await fetch('/api/admin/logs');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.logs)) {
+             setDebugLogs(data.logs);
+        }
+    } catch (e) {}
+  };
+
+  // Periodically fetch unified server logs if active
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'logs') {
+        window.location.hash = '#admin-logs';
+        fetchAdminLogs();
+        const t = setInterval(fetchAdminLogs, 2000);
+        return () => clearInterval(t);
+    } else {
+        window.location.hash = '';
+    }
+  }, [activeTab, adminSubTab]);
 
   const fetchAttendanceHistory = async () => {
     try {
@@ -750,6 +821,18 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const syncCurrentUser = async () => {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/users');
+        const data = await res.json();
+        const me = data.find((u: any) => u.id === currentUser.id);
+        if (me) {
+            setCurrentUser(me);
+        }
+    } catch(e){}
   };
 
   // --------------------------------------------------------------------------
@@ -858,6 +941,10 @@ export default function App() {
   // WEBCAM LIVENESS PHOTO
   // --------------------------------------------------------------------------
   const startCamera = async () => {
+    if (permissionStates.camera === 'denied') {
+        showCustomAlert("Izin kamera ditolak. Silakan izinkan di pengaturan perangkat sidebar terlebih dahulu.", "Kamera Diblokir");
+        return;
+    }
     setShowCamera(true);
     setCameraError(null);
     try {
@@ -910,7 +997,7 @@ export default function App() {
   const handleCheckIn = async (photoOverride?: string | null) => {
     const finalPhoto = photoOverride !== undefined ? photoOverride : livenessPhoto;
     if (!currentUser || deviceLat === null || deviceLng === null) {
-      alert("GPS Anda belum terdeteksi. Silakan muat ulang halaman atau izinkan GPS.");
+      showCustomAlert("GPS Anda belum terdeteksi. Silakan muat ulang halaman atau izinkan GPS.", "Error");
       return;
     }
 
@@ -930,36 +1017,51 @@ export default function App() {
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error("Invalid server response: " + text.substring(0, 50));
+      }
 
       if (!res.ok) {
         if (data.outsideGeofence) {
           setIsOutsideGeofence(true);
-          alert(data.error);
+          showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
           startCamera();
         } else {
-          alert(data.error);
+          showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
         }
         return;
       }
 
-      alert(data.message);
+      showCustomAlert(data.message, "Sukses");
       setLivenessPhoto(null);
       setIsOutsideGeofence(false);
       setIsManualCheckIn(false);
       setIsEmergencyLate(false);
       setEmergencyLateReason('');
       fetchAttendanceHistory();
+      syncCurrentUser();
     } catch (e) {
-      alert("Proses Check-In gagal.");
+      console.error("Proses Check-In Error:", e);
+      showCustomAlert("Proses Check-In gagal. Cek logs untuk detail.", "Error");
     }
   };
 
   const handleCheckOut = async (photoOverride?: string | null) => {
     const finalPhoto = photoOverride !== undefined ? photoOverride : livenessPhoto;
     if (!currentUser || deviceLat === null || deviceLng === null) {
-      alert("GPS Anda belum terdeteksi.");
+      showCustomAlert("GPS Anda belum terdeteksi.", "Error");
       return;
+    }
+    const currentHour = serverTime.getHours();
+    let isOvertimePending = false;
+    if (currentHour < 20) {
+        if (!window.confirm("Peringatan: Anda akan di kenakan status pulang cepat jika checkout saat ini. Apakah Anda yakin?")) return;
+    } else if (currentHour >= 20) {
+        if (window.confirm("Jam kerja berakhir. Apakah Anda ingin mengajukan LEMBUR? Jika Batal, sistem mencatat pulang normal (20:00).")) isOvertimePending = true;
     }
 
     try {
@@ -969,18 +1071,26 @@ export default function App() {
         body: JSON.stringify({
           userId: currentUser.id,
           lat: deviceLat,
-          lng: deviceLng
+          lng: deviceLng,
+          isOvertimePending
         })
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error("Invalid server response: " + text.substring(0, 50));
+      }
       if (!res.ok) {
-        alert(data.error);
+        showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
         return;
       }
-      alert("Berhasil melakukan Check-Out untuk hari ini.");
+      showCustomAlert("Berhasil melakukan Check-Out untuk hari ini.", "Sukses");
       fetchAttendanceHistory();
+      syncCurrentUser();
     } catch (e) {
-      alert("Proses Check-Out gagal.");
+      showCustomAlert("Proses Check-Out gagal.", "Error");
     }
   };
 
@@ -998,14 +1108,14 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error);
+        showCustomAlert(data.error || "Terjadi kesalahan.", "Error");
         return;
       }
-      alert(data.record?.note || "Kedatangan berhasil dikonfirmasi!");
+      showCustomAlert(data.record?.note || "Kedatangan berhasil dikonfirmasi!", "Sukses");
       setIsConfirmedToBoss(false);
       fetchAttendanceHistory();
     } catch (e) {
-      alert("Gagal melakukan konfirmasi kedatangan.");
+      showCustomAlert("Gagal melakukan konfirmasi kedatangan.", "Error");
     } finally {
       setIsSubmittingManualArrive(false);
     }
@@ -1138,12 +1248,12 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert("Pekerja berhasil disetujui, ditempatkan, dan aktif.");
+      showCustomAlert("Pekerja berhasil disetujui, ditempatkan, dan aktif.", "Sukses");
       setApprovalUserForm(null);
       fetchPendingWorkers();
       fetchAllWorkers();
     } else {
-      alert("Gagal menyetujui pekerja.");
+      showCustomAlert("Gagal menyetujui pekerja.", "Error");
     }
   };
 
@@ -1179,7 +1289,7 @@ export default function App() {
       }
     }
 
-    alert(`Penyetujuan Massal Selesai: ${successCount} dari ${selectedPendingWorkerIds.length} pendaftar berhasil disetujui.`);
+    showCustomAlert(`Penyetujuan Massal Selesai: ${successCount} dari ${selectedPendingWorkerIds.length} pendaftar berhasil disetujui.`, "Sukses");
     setSelectedPendingWorkerIds([]);
     setIsBulkApprovingWorkers(false);
     fetchPendingWorkers();
@@ -1196,7 +1306,7 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert("Pekerja berhasil ditolak.");
+      showCustomAlert("Pekerja berhasil ditolak.", "Sukses");
       fetchPendingWorkers();
       fetchAllWorkers();
     }
@@ -1256,7 +1366,7 @@ export default function App() {
       }
     }
 
-    alert(`Persetujuan Massal Selesai: ${successCount} dari ${selectedPendingAttendanceIds.length} rekor absensi berhasil disahkan.`);
+    showCustomAlert(`Persetujuan Massal Selesai: ${successCount} dari ${selectedPendingAttendanceIds.length} rekor absensi berhasil disahkan.`, "Sukses");
     setSelectedPendingAttendanceIds([]);
     setIsBulkApprovingAttendance(false);
     fetchAttendanceHistory();
@@ -1271,6 +1381,8 @@ export default function App() {
     });
     if (res.ok) {
       fetchLeaveRequests();
+      syncCurrentUser();
+      fetchAllWorkers();
       setLeaveRemarks((prev) => {
         const next = { ...prev };
         delete next[requestId];
@@ -1294,7 +1406,7 @@ export default function App() {
     });
 
     if (res.ok) {
-      alert(editingLocationId ? "Lokasi berhasil diubah." : "Lokasi berhasil ditambahkan.");
+      showCustomAlert(editingLocationId ? "Lokasi berhasil diubah." : "Lokasi berhasil ditambahkan.", "Sukses");
       setNewLocationName('');
       setNewLocationLat('');
       setNewLocationLng('');
@@ -1302,7 +1414,7 @@ export default function App() {
       setEditingLocationId(null);
       fetchLocations();
     } else {
-      alert("Gagal memproses lokasi kerja.");
+      showCustomAlert("Gagal memproses lokasi kerja.", "Error");
     }
   };
 
@@ -1311,7 +1423,7 @@ export default function App() {
       setNewLocationLat(deviceLat.toString());
       setNewLocationLng(deviceLng.toString());
     } else {
-      alert("GPS belum mendeteksi lokasi saat ini.");
+      showCustomAlert("GPS belum mendeteksi lokasi saat ini.", "Error");
     }
   };
 
@@ -1479,7 +1591,7 @@ export default function App() {
 
   const handleExportUserLogsCSV = () => {
     if (filteredUserRecords.length === 0) {
-      alert("Tidak ada log riwayat kehadiran untuk diekspor.");
+      showCustomAlert("Tidak ada log riwayat kehadiran untuk diekspor.", "Error");
       return;
     }
 
@@ -1920,6 +2032,7 @@ const monthlyKPIData = React.useMemo(() => {
             >
               <Menu className="w-5 h-5" />
             </button>
+            <button onClick={() => window.location.reload()} className="p-2 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800 focus:outline-none ml-auto"><RefreshCw className="w-5 h-5" /></button>
           </header>
 
           <div className="flex-1 flex overflow-hidden relative">
@@ -2180,6 +2293,25 @@ const monthlyKPIData = React.useMemo(() => {
                 <button
                   type="button"
                   onClick={() => {
+                    window.location.hash = '#admin-logs';
+                    setActiveTab('admin');
+                    setAdminSubTab('logs');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Sistem Log"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'logs'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Terminal className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Sistem Log</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
                     setActiveTab('admin');
                     setAdminSubTab('export');
                     setIsMobileSidebarOpen(false);
@@ -2328,6 +2460,9 @@ const monthlyKPIData = React.useMemo(() => {
                   onClick={() => {
     if (permissionStates.gps === 'granted') {
       setPermissionStates(prev => ({ ...prev, gps: 'denied' }));
+      setDeviceLat(null);
+      setDeviceLng(null);
+      setCurrentGeofenceStatus('unknown');
     } else {
       requestGPSPermission();
     }
@@ -2405,54 +2540,104 @@ const monthlyKPIData = React.useMemo(() => {
                   </div>
                 </div>
 
+                {/* Quota Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    {/* QUOTA LIBUR */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shadow-sm">
+                        <CalendarIcon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Sisa Libur</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-xs font-medium text-slate-400">/ 4</span></p>
+                      </div>
+                    </div>
+
+                    {/* QUOTA TELAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Tol. Telat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
+                      </div>
+                    </div>
+
+                    {/* TELAT DARURAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shadow-sm">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Telat Darurat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-xs font-medium text-slate-400">/ 2</span></p>
+                      </div>
+                    </div>
+
+                    {/* PULANG CEPAT */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shadow-sm">
+                        <LogOut className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono line-clamp-1">Pulang Cepat</span>
+                        <p className="font-display font-bold text-sm text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-xs font-medium text-slate-400">/ 3</span></p>
+                      </div>
+                    </div>
+                </div>
+
                                 {/* Geofence / Check-In Live Module */}
                 <div className="flex flex-col gap-6">
                   
 
 
                   {/* Left Column: Tracking Status / Controls */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6 shadow-sm text-slate-800">
-                    <div>
-                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest block font-mono">Status Sistem Presensi</span>
-                      <h3 className="font-display font-black text-2xl text-slate-800 tracking-tight mt-1">Presensi Hari Ini</h3>
-                      <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-[85%]">
-                        Geofence membatasi radius absensi. Sistem menggunakan GPS & liveness wajah untuk keamanan ganda.
+                  <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between space-y-6 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 -mt-10 -mr-10 opacity-10 blur-xl">
+                       <MapPin className="w-64 h-64 text-indigo-400" />
+                    </div>
+
+                    <div className="relative z-10">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full uppercase tracking-widest font-mono border border-indigo-500/20">Modul Presensi</span>
+                        <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+                      </div>
+                      <h3 className="font-display font-black text-2xl text-white tracking-tight mt-4">Presensi Hari Ini</h3>
+                      <p className="text-xs text-slate-400 mt-1.5 leading-relaxed max-w-[85%]">
+                        Radius absensi masuk ke kantor/gudang dibatasi oleh Geofence. GPS live perangkat & liveness wajah digunakan untuk validasi ganda.
                       </p>
                     </div>
 
                     {isLocating && (
-                      <div className="bg-blue-50/80 border border-blue-100 p-4 rounded-2xl flex items-center gap-3 text-xs text-blue-600 shadow-inner">
-                        <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                      <div className="bg-indigo-500/20 border border-indigo-400/30 p-4 rounded-2xl flex items-center gap-3 text-xs text-indigo-200 shadow-inner relative z-10 backdrop-blur-md">
+                        <RefreshCw className="w-5 h-5 animate-spin text-indigo-400 shrink-0" />
                         <span className="font-medium">Menyinkronkan satelit GPS perangkat...</span>
                       </div>
                     )}
 
                     {!isLocating && (
-                      <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4 font-mono text-xs shadow-xl relative overflow-hidden group">
+                      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 space-y-4 font-mono text-xs shadow-xl relative z-10">
 
-                        <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4 group-hover:scale-110 transition-transform duration-500">
-                          <MapPin className="w-32 h-32 text-white" />
-                        </div>
-
-                        <div className="relative z-10 flex justify-between items-center">
-                          <span className="text-slate-400 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-400" /> Koordinat Anda:</span>
-                          <span className="text-blue-400 font-bold bg-blue-500/10 px-2 py-1 rounded-lg">
+                        <div className="flex justify-between items-center group">
+                          <span className="text-slate-400 flex items-center gap-2 group-hover:text-slate-300 transition-colors"><MapPin className="w-4 h-4 text-indigo-400" /> Koordinat Anda:</span>
+                          <span className="text-indigo-300 font-bold bg-indigo-500/10 px-2 py-1 rounded-lg border border-indigo-500/20 shadow-sm">
                             {deviceLat ? `${deviceLat.toFixed(5)}, ${deviceLng?.toFixed(5)}` : 'Sinyal Hilang'}
                           </span>
                         </div>
-                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
-                          <span className="text-slate-400 flex items-center gap-2"><Building2 className="w-4 h-4 text-emerald-400" /> Penempatan Kerja:</span>
+                        <div className="flex justify-between items-center border-t border-white/5 pt-4 group">
+                          <span className="text-slate-400 flex items-center gap-2 group-hover:text-slate-300 transition-colors"><Building2 className="w-4 h-4 text-emerald-400" /> Penempatan Kerja:</span>
                           <span className="text-slate-200 font-semibold text-right flex flex-col items-end">
                             {currentUser.division} <span className="text-[10px] text-slate-400">{currentUser.position}</span>
                           </span>
                         </div>
-                        <div className="relative z-10 flex justify-between items-center border-t border-slate-700 pt-4">
-                          <span className="text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-amber-400" /> Kunci Perangkat:</span>
+                        <div className="flex justify-between items-center border-t border-white/5 pt-4 group">
+                          <span className="text-slate-400 flex items-center gap-2 group-hover:text-slate-300 transition-colors"><Lock className="w-4 h-4 text-amber-400" /> Kunci Perangkat:</span>
                           <span className="text-slate-200 font-semibold">
                             {currentUser.lastCheckInDevice ? (
-                               <span className="flex items-center gap-1.5 text-emerald-400"><ShieldCheck className="w-4 h-4"/> Terkunci</span>
+                               <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20"><ShieldCheck className="w-4 h-4"/> Terkunci</span>
                             ) : (
-                               <span className="flex items-center gap-1.5 text-amber-400"><Unlock className="w-4 h-4"/> Belum Dikunci</span>
+                               <span className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20"><Unlock className="w-4 h-4"/> Belum Dikunci</span>
                             )}
                           </span>
                         </div>
@@ -2468,7 +2653,7 @@ const monthlyKPIData = React.useMemo(() => {
                           type="button"
                           onClick={() => {
                             if (deviceLat === null) {
-                              alert("GPS Anda belum terdeteksi atau izin belum diberikan.");
+                              showCustomAlert("GPS Anda belum terdeteksi atau izin belum diberikan.", "Error");
                               return;
                             }
                             setMapModalAction('checkin'); 
@@ -2543,7 +2728,7 @@ const monthlyKPIData = React.useMemo(() => {
                           type="button"
                           onClick={() => {
                             if (deviceLat === null) {
-                              alert("GPS Anda belum terdeteksi atau izin belum diberikan.");
+                              showCustomAlert("GPS Anda belum terdeteksi atau izin belum diberikan.", "Error");
                               return;
                             }
                             setMapModalAction('checkout'); 
@@ -2620,49 +2805,7 @@ const monthlyKPIData = React.useMemo(() => {
                 {/* Dashboard Metrics (Quotas/Sisa jatah) */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   
-                  {/* QUOTA LIBUR */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 border border-purple-100 flex items-center justify-center shadow-sm">
-                      <CalendarIcon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Sisa Jatah Libur</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.libur} <span className="text-sm font-medium text-slate-400">/ 4 Hari</span></p>
-                    </div>
-                  </div>
 
-                  {/* QUOTA TELAT */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm">
-                      <Clock className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Toleransi Telat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telat} <span className="text-sm font-medium text-slate-400">/ 2 Kali</span></p>
-                    </div>
-                  </div>
-
-                  {/* TELAT DARURAT */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shadow-sm">
-                      <AlertTriangle className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Telat Darurat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.telatDarurat} <span className="text-sm font-medium text-slate-400">/ 2 Kali</span></p>
-                    </div>
-                  </div>
-
-                  {/* PULANG CEPAT */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shadow-sm">
-                      <LogOut className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Pulang Cepat</span>
-                      <p className="font-display font-bold text-lg text-slate-800 mt-0.5">{currentUser.leaveQuota.pulangCepat} <span className="text-sm font-medium text-slate-400">/ 3 Kali</span></p>
-                    </div>
-                  </div>
                 </div>
 
                               {/* ----------------------------------------------------------------------
@@ -3527,12 +3670,12 @@ const monthlyKPIData = React.useMemo(() => {
                           <h4 className="font-display font-bold text-sm text-slate-800">Antrean Verifikasi Liveness (Absen Luar Area)</h4>
                           <p className="text-xs text-slate-500 mt-0.5">Melihat unggahan foto lokasi selfie liveness check milik pekerja di luar wilayah geofence.</p>
                         </div>
-                        {attendanceRecords.filter(r => r.status === 'pending').length > 0 && (
+                        {attendanceRecords.filter(r => r.status === 'pending' || r.isOvertimePending).length > 0 && (
                           <div className="flex items-center gap-2.5">
                             <button
                               type="button"
                               onClick={() => {
-                                const pendingRecs = attendanceRecords.filter(r => r.status === 'pending');
+                                const pendingRecs = attendanceRecords.filter(r => r.status === 'pending' || r.isOvertimePending);
                                 if (selectedPendingAttendanceIds.length === pendingRecs.length) {
                                   setSelectedPendingAttendanceIds([]);
                                 } else {
@@ -4214,6 +4357,63 @@ const monthlyKPIData = React.useMemo(() => {
                   </div>
                 )}
 
+                {adminSubTab === 'logs' && (
+                  <div className="space-y-6 animate-fade-in text-slate-800">
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden shadow-xl flex flex-col h-[600px]">
+                      <div className="p-4 border-b border-slate-700 bg-slate-800/80 flex items-center justify-between">
+                        <div>
+                          <h4 className="font-display font-bold text-sm text-slate-200 flex items-center gap-2">
+                            <Terminal className="w-4 h-4 text-blue-400" /> Unified Server & Client Logs
+                          </h4>
+                          <p className="text-[10px] text-slate-400 mt-1">Real-time combined logs from the PM2 Node Server and active Web/APK clients.</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(debugLogs.join('\n'));
+                              showCustomAlert("Logs copied to clipboard.", "Copied");
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-mono text-[10px] px-3 py-1.5 rounded transition"
+                          >
+                            Copy Logs
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await fetch('/api/admin/logs/clear', { method: 'POST' });
+                              setDebugLogs([]);
+                            }}
+                            className="bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 font-mono text-[10px] px-3 py-1.5 rounded transition"
+                          >
+                            Clear Logs
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 p-4 overflow-y-auto font-mono text-[10px] sm:text-xs text-slate-300 space-y-1 bg-slate-950 custom-scrollbar">
+                        {debugLogs.length > 0 ? (
+                          debugLogs.map((log, i) => (
+                            <div key={i} className={`whitespace-pre-wrap break-words ${
+                              log.includes('[ERROR]') ? 'text-rose-400' :
+                              log.includes('[WARN]') ? 'text-amber-400' :
+                              log.includes('[CLIENT]') ? 'text-blue-300' : 'text-slate-300'
+                            }`}>
+                              {log}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-slate-600 text-center h-full flex flex-col items-center justify-center">
+                            <Terminal className="w-8 h-8 mb-2 opacity-50" />
+                            <p>No system logs recorded yet.</p>
+                            <p className="text-[9px] mt-1">Waiting for incoming server or client dispatches...</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ----------------------------------------------------------------------
                    SUBTAB: REPORTS DATA EXPORT
                    ---------------------------------------------------------------------- */}
@@ -4272,7 +4472,7 @@ const monthlyKPIData = React.useMemo(() => {
                                           body: JSON.stringify({ userId: worker.id, libur: Number(newLibur) })
                                         });
                                         if (res.ok) {
-                                          alert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.");
+                                          showCustomAlert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.", "Sukses");
                                           fetchAllWorkers();
                                         }
                                       }
@@ -4291,9 +4491,62 @@ const monthlyKPIData = React.useMemo(() => {
                                           body: JSON.stringify({ userId: worker.id })
                                         });
                                         if (res.ok) {
-                                          alert("Akun berhasil dihapus.");
+                                          showCustomAlert("Akun berhasil dihapus.", "Sukses");
                                           fetchAllWorkers();
                                         }
+                                      }
+                                    }}
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Hapus
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const time = prompt("Jam Pulang Cepat (HH:MM):", "16:00");
+                                      if (!time) return;
+                                      const note = prompt("Keterangan Pulang Cepat:", "Pulang karena sakit");
+                                      if (note === null) return;
+                                      try {
+                                        const res = await fetch('/api/admin/manual-checkout', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: worker.id, timeStr: time, note })
+                                        });
+                                        if (res.ok) { showCustomAlert("Berhasil.", "Sukses"); fetchAllWorkers(); fetchAttendanceHistory(); syncCurrentUser(); }
+                                      } catch (e) {}
+                                    }}
+                                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
+                                  >
+                                    Pulang Cepat (Manual)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (worker.role === 'admin') return showCustomAlert("Tidak dapat menghapus admin utama.", "Error");
+                                      if (window.confirm(`Yakin ingin ${worker.disabled ? 'mengaktifkan' : 'menonaktifkan'} ${worker.username}?`)) {
+                                          try {
+                                              const res = await fetch(`/api/admin/users/${worker.id}/toggle-disable`, { method: 'POST' });
+                                              const data = await res.json();
+                                              if (res.ok) { showCustomAlert(`Akun berhasil ${data.disabled ? 'dinonaktifkan' : 'diaktifkan'}.`, "Sukses"); fetchAllWorkers(); }
+                                              else showCustomAlert(data.error || "Gagal.", "Error");
+                                          } catch(e) {}
+                                      }
+                                    }}
+                                    className={`${worker.disabled ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-amber-50 hover:bg-amber-100 text-amber-600 border-amber-200'} border font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer`}
+                                  >
+                                    {worker.disabled ? 'Aktifkan' : 'Nonaktifkan'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (worker.role === 'admin') return showCustomAlert("Tidak dapat menghapus admin utama.", "Error");
+                                      if (window.confirm(`Yakin ingin MENGHAPUS ${worker.username} secara permanen?`)) {
+                                          try {
+                                              const res = await fetch(`/api/admin/users/${worker.id}`, { method: 'DELETE' });
+                                              if (res.ok) { showCustomAlert("Akun berhasil dihapus.", "Sukses"); fetchAllWorkers(); }
+                                              else { const data = await res.json(); showCustomAlert(data.error || "Gagal menghapus.", "Error"); }
+                                          } catch(e) {}
                                       }
                                     }}
                                     className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold text-[9px] py-0.5 px-2 rounded transition cursor-pointer"
@@ -4310,7 +4563,7 @@ const monthlyKPIData = React.useMemo(() => {
                                         body: JSON.stringify({ userId: worker.id, disabled })
                                       });
                                       if (res.ok) {
-                                        alert(`Akun berhasil ${disabled ? 'dinonaktifkan' : 'diaktifkan'}.`);
+                                        showCustomAlert(`Akun berhasil ${disabled ? 'dinonaktifkan' : 'diaktifkan'}.`, "Sukses");
                                         fetchAllWorkers();
                                       }
                                     }}
@@ -4390,7 +4643,8 @@ const monthlyKPIData = React.useMemo(() => {
       {/* Custom Dialog Overlay */}
       {customDialog.isOpen && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in text-slate-800">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4 relative">
+            <button onClick={() => setCustomDialog(prev => ({ ...prev, isOpen: false }))} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             <div className="flex items-start gap-3.5">
               <div className={`p-2.5 rounded-xl shrink-0 ${
                 customDialog.type === 'confirm' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
