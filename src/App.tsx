@@ -927,7 +927,6 @@ export default function App() {
       console.error('Failed to fetch activity stats', e);
     }
   };
-  };
 
   // --------------------------------------------------------------------------
   // AUTHENTICATION
