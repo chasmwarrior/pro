@@ -193,14 +193,22 @@ export default function App() {
   const [showPermissionPromptModal, setShowPermissionPromptModal] = useState(false);
   const [showCheckInMapModal, setShowCheckInMapModal] = useState(false);
   const [mapModalAction, setMapModalAction] = useState<'checkin' | 'checkout' | null>(null);
-  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; persistent?: boolean }>>([]);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success', persistent: boolean = false) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    setToasts(prev => [...prev, { id, message, type, persistent }]);
+    
+    // Auto-dismiss after 4 seconds only if not persistent
+    if (!persistent) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, 4000);
+    }
+  };
+  
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
   const [authCredential, setAuthCredential] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -419,11 +427,15 @@ export default function App() {
   }, [deviceLat, deviceLng, locations, activeTab, currentGeofenceStatus]);
 
   useEffect(() => {
+    // Initialize device fingerprint only once on app mount
+    generateDeviceFingerprint();
+  }, []);
+
+  useEffect(() => {
     fetchConfig();
     fetchLocations();
     fetchAnnouncements();
     syncServerTime();
-    generateDeviceFingerprint();
 
     // Constant synchronized clock ticker
     const interval = setInterval(() => {
@@ -1335,14 +1347,15 @@ export default function App() {
     });
     if (res.ok) {
       if (action === 'approve') {
-        showToast("Absensi berhasil disahkan!", "success");
+        showToast("✓ Absensi berhasil disahkan! Jatah telah diperbarui.", "success", true);
       } else {
-        showToast("Absensi berhasil ditolak.", "info");
+        showToast("Absensi berhasil ditolak.", "info", true);
       }
       fetchAttendanceHistory();
       fetchAllWorkers(); // Refresh quotas on admin dashboard too!
+      syncCurrentUser(); // Refresh current user's quota if they are viewing
     } else {
-      showToast("Gagal memproses persetujuan absensi.", "error");
+      showToast("Gagal memproses persetujuan absensi.", "error", true);
     }
   };
 
@@ -1370,6 +1383,8 @@ export default function App() {
     setSelectedPendingAttendanceIds([]);
     setIsBulkApprovingAttendance(false);
     fetchAttendanceHistory();
+    fetchAllWorkers();
+    syncCurrentUser(); // Refresh current user's quota
   };
 
   const handleApproveLeaveRequest = async (requestId: string, approve: boolean, adminRemarks?: string) => {
@@ -4474,6 +4489,7 @@ const monthlyKPIData = React.useMemo(() => {
                                         if (res.ok) {
                                           showCustomAlert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.", "Sukses");
                                           fetchAllWorkers();
+                                          syncCurrentUser();
                                         }
                                       }
                                     }}
@@ -4693,15 +4709,18 @@ const monthlyKPIData = React.useMemo(() => {
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-emerald-100/40'
                 : toast.type === 'error'
                 ? 'bg-rose-50 text-rose-800 border-rose-200 shadow-rose-100/40'
+                : toast.type === 'warning'
+                ? 'bg-amber-50 text-amber-800 border-amber-200 shadow-amber-100/40'
                 : 'bg-slate-50 text-slate-800 border-slate-200 shadow-slate-100/40'
-            }`}
+            } ${toast.persistent ? 'ring-2 ring-offset-1 ring-slate-300' : ''}`}
           >
             <div className={`w-1.5 h-1.5 rounded-full ${
-              toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-rose-500' : 'bg-slate-400'
+              toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-rose-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-slate-400'
             }`} />
             <span className="flex-1 text-slate-800">{toast.message}</span>
+            {toast.persistent && <span className="text-xs text-slate-500 ml-1">●</span>}
             <button
-              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              onClick={() => dismissToast(toast.id)}
               className="text-slate-400 hover:text-slate-600 font-bold ml-2 text-sm pointer-events-auto cursor-pointer"
             >
               ×

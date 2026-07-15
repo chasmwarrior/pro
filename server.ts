@@ -521,13 +521,12 @@ app.post('/api/attendance/check-in', (req, res) => {
     return res.status(404).json({ error: 'User tidak ditemukan.' });
   }
 
-  // Device binding check
-  // Temporarily disabled due to bug reports from Android WebView
-  // if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
-  //   return res.status(400).json({
-  //     error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
-  //   });
-  // }
+  // Device binding check - Enforce device lock after first check-in
+  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+    return res.status(400).json({
+      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+    });
+  }
 
   // Determine locations & geofences
   const locations = db.locations;
@@ -716,13 +715,12 @@ app.post('/api/attendance/check-out', (req, res) => {
     return res.status(404).json({ error: 'User tidak ditemukan.' });
   }
 
-  // Device binding check for checkout
-  // Temporarily disabled due to bug reports from Android WebView
-  // if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
-  //   return res.status(400).json({
-  //     error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
-  //   });
-  // }
+  // Device binding check for checkout - Enforce device lock
+  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+    return res.status(400).json({
+      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+    });
+  }
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
