@@ -226,6 +226,8 @@
       "createdBy": "admin"
     }
   ],
+  "deviceRegistry": [],
+  "activityLogs": [],
   "config": {
     "branding": {
       "name": "AbsenPro Nusantara",

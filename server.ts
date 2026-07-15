@@ -239,6 +239,157 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c; // Distance in meters
 }
 
+// ===== ADVANCED DEVICE BINDING & ACTIVITY LOGGING SYSTEM =====
+
+/**
+ * Register or update device in registry
+ * Returns: { deviceId, isNewDevice, existingUser }
+ */
+function registerDevice(fingerprint: string, userId: string, lat: number, lng: number) {
+  const db = readDB();
+  if (!db.deviceRegistry) db.deviceRegistry = [];
+  if (!db.activityLogs) db.activityLogs = [];
+  
+  const existingDevice = db.deviceRegistry.find((d: any) => d.fingerprint === fingerprint);
+  const now = new Date().toISOString();
+  
+  if (existingDevice) {
+    // Device already registered - update last seen
+    const previousUser = existingDevice.userId;
+    const userChanged = previousUser !== userId;
+    
+    existingDevice.lastSeen = now;
+    existingDevice.lastLat = lat;
+    existingDevice.lastLng = lng;
+    existingDevice.accessCount = (existingDevice.accessCount || 0) + 1;
+    existingDevice.boundUsers = existingDevice.boundUsers || [previousUser];
+    
+    if (userChanged && !existingDevice.boundUsers.includes(userId)) {
+      existingDevice.boundUsers.push(userId);
+    }
+    
+    // Log device reuse from different user
+    if (userChanged) {
+      logActivity('DEVICE_REUSE', userId, {
+        deviceFingerprint: fingerprint,
+        previousUser,
+        action: 'device_accessed_by_different_user'
+      });
+    }
+    
+    return { deviceId: existingDevice.id, isNewDevice: false, previousUser, userChanged };
+  } else {
+    // New device - register it
+    const newDevice = {
+      id: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      fingerprint,
+      userId,
+      boundUsers: [userId],
+      firstSeen: now,
+      lastSeen: now,
+      lastLat: lat,
+      lastLng: lng,
+      accessCount: 1,
+      approved: false, // Requires admin approval
+      blocked: false,
+      metadata: {
+        registeredAt: now,
+        registrationLat: lat,
+        registrationLng: lng
+      }
+    };
+    
+    db.deviceRegistry.push(newDevice);
+    logActivity('DEVICE_REGISTER', userId, {
+      deviceFingerprint: fingerprint,
+      action: 'new_device_registered',
+      lat, lng
+    });
+    
+    return { deviceId: newDevice.id, isNewDevice: true, previousUser: null, userChanged: false };
+  }
+}
+
+/**
+ * Check if device is authorized for user
+ * Returns: { authorized: boolean, reason: string }
+ */
+function validateDeviceBinding(fingerprint: string, userId: string) {
+  const db = readDB();
+  if (!db.deviceRegistry) db.deviceRegistry = [];
+  
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) return { authorized: false, reason: 'User not found' };
+  
+  const device = db.deviceRegistry.find((d: any) => d.fingerprint === fingerprint);
+  
+  // If no device registered yet, allow first check-in
+  if (!device && !user.lastCheckInDevice) {
+    return { authorized: true, reason: 'First time registration allowed', isFirstTime: true };
+  }
+  
+  // If device is blocked, reject
+  if (device && device.blocked) {
+    return { authorized: false, reason: 'Device is blocked by admin' };
+  }
+  
+  // Check if user's lastCheckInDevice matches
+  if (user.lastCheckInDevice) {
+    if (user.lastCheckInDevice !== fingerprint) {
+      return { 
+        authorized: false, 
+        reason: `Device mismatch. Registered: ${user.lastCheckInDevice}, Current: ${fingerprint}` 
+      };
+    }
+  }
+  
+  return { authorized: true, reason: 'Device authorized' };
+}
+
+/**
+ * Log all system activities
+ */
+function logActivity(category: string, userId: string, details: any) {
+  const db = readDB();
+  if (!db.activityLogs) db.activityLogs = [];
+  
+  const logEntry = {
+    id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    timestamp: new Date().toISOString(),
+    category, // AUTH, CHECK_IN, CHECK_OUT, APPROVAL, QUOTA, DEVICE_*, LEAVE_*, ADMIN_*
+    userId,
+    details,
+    severity: ['ERROR', 'DEVICE_REUSE'].includes(category) ? 'warning' : 'info'
+  };
+  
+  db.activityLogs.unshift(logEntry);
+  if (db.activityLogs.length > 5000) {
+    db.activityLogs = db.activityLogs.slice(0, 5000);
+  }
+  
+  writeDB(db);
+  return logEntry;
+}
+
+/**
+ * Get filtered activity logs with advanced filtering
+ */
+function getActivityLogs(filters: any) {
+  const db = readDB();
+  if (!db.activityLogs) return [];
+  
+  let logs = [...db.activityLogs];
+  
+  if (filters.category) logs = logs.filter((l: any) => l.category === filters.category);
+  if (filters.userId) logs = logs.filter((l: any) => l.userId === filters.userId);
+  if (filters.severity) logs = logs.filter((l: any) => l.severity === filters.severity);
+  if (filters.startTime) logs = logs.filter((l: any) => new Date(l.timestamp) >= new Date(filters.startTime));
+  if (filters.endTime) logs = logs.filter((l: any) => new Date(l.timestamp) <= new Date(filters.endTime));
+  if (filters.limit) logs = logs.slice(0, filters.limit);
+  
+  return logs;
+}
+
 
 // Helper to parse HH:MM to minutes since midnight
 function timeStrToMinutes(timeStr: string): number {
@@ -518,15 +669,36 @@ app.post('/api/attendance/check-in', (req, res) => {
 
   const user = db.users.find((u: any) => u.id === userId);
   if (!user) {
+    logActivity('CHECK_IN', userId || 'unknown', { error: 'User not found' });
     return res.status(404).json({ error: 'User tidak ditemukan.' });
   }
 
-  // Device binding check - Enforce device lock after first check-in
-  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+  // ===== ENHANCED DEVICE BINDING VALIDATION =====
+  const deviceValidation = validateDeviceBinding(device, userId);
+  if (!deviceValidation.authorized) {
+    logActivity('CHECK_IN', userId, { 
+      error: deviceValidation.reason,
+      device,
+      lat, lng
+    });
     return res.status(400).json({
-      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+      error: deviceValidation.reason,
+      requiresUnbind: true
     });
   }
+
+  // Register device access
+  const deviceReg = registerDevice(device, userId, lat, lng);
+  if (deviceReg.isNewDevice) {
+    logActivity('CHECK_IN', userId, { 
+      message: 'New device registered',
+      device,
+      deviceId: deviceReg.deviceId
+    });
+  }
+
+  // Update user's device binding
+  user.lastCheckInDevice = device;
 
   // Determine locations & geofences
   const locations = db.locations;
@@ -712,15 +884,26 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   const user = db.users.find((u: any) => u.id === userId);
   if (!user) {
+    logActivity('CHECK_OUT', userId || 'unknown', { error: 'User not found' });
     return res.status(404).json({ error: 'User tidak ditemukan.' });
   }
 
-  // Device binding check for checkout - Enforce device lock
-  if (user.lastCheckInDevice && user.lastCheckInDevice !== device) {
+  // ===== ENHANCED DEVICE BINDING VALIDATION FOR CHECKOUT =====
+  const deviceValidation = validateDeviceBinding(device, userId);
+  if (!deviceValidation.authorized) {
+    logActivity('CHECK_OUT', userId, { 
+      error: deviceValidation.reason,
+      device,
+      lat, lng
+    });
     return res.status(400).json({
-      error: `Perangkat terdeteksi berbeda (${device}). Perangkat Anda dikunci ke '${user.lastCheckInDevice}'. Hubungi Administrator untuk melakukan UNBIND DEVICE.`
+      error: deviceValidation.reason,
+      requiresUnbind: true
     });
   }
+
+  // Register device access
+  registerDevice(device, userId, lat, lng);
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
@@ -728,10 +911,12 @@ app.post('/api/attendance/check-out', (req, res) => {
 
   const recordIdx = db.attendanceRecords.findIndex((r: any) => r.userId === userId && r.date === dateStr);
   if (recordIdx === -1) {
+    logActivity('CHECK_OUT', userId, { error: 'No check-in record found for today' });
     return res.status(400).json({ error: 'Anda belum melakukan Check-In hari ini.' });
   }
 
   if (db.attendanceRecords[recordIdx].checkOutTime) {
+    logActivity('CHECK_OUT', userId, { error: 'Already checked out today' });
     return res.status(400).json({ error: 'Anda sudah melakukan Check-Out hari ini.' });
   }
 
@@ -994,10 +1179,33 @@ app.post('/api/attendance/approve-pending', (req, res) => {
     };
 
     record.note = `Absen DISETUJUI oleh Admin/Supervisor. [Klasifikasi: ${classificationNames[classification] || classification}] [Sanksi: Rp ${record.fineAmount.toLocaleString('id-ID')}] [Jatah: ${quotaNames[quotaDeduction] || quotaDeduction}].`;
+    
+    // Log quota deduction activity
+    if (quotaDeduction !== 'none' && user) {
+      logActivity('QUOTA_DEDUCTED', record.userId, {
+        quotaType: quotaDeduction,
+        reason: 'Approval of pending attendance',
+        recordId,
+        newQuota: user.leaveQuota[quotaDeduction as any],
+        fineAmount: record.fineAmount
+      });
+    }
   } else {
     record.status = 'rejected';
     record.note = 'Absen ditolak oleh Admin/Supervisor karena liveness tidak valid atau melanggar batas geofence.';
+    logActivity('ATTENDANCE_REJECTED', record.userId, {
+      recordId,
+      reason: record.note
+    });
   }
+
+  logActivity('ATTENDANCE_APPROVAL', record.userId, {
+    recordId,
+    action,
+    classification,
+    quotaDeduction,
+    fineAmount: record.fineAmount
+  });
 
   writeDB(db);
   res.json({ success: true, record });
@@ -1340,8 +1548,137 @@ app.post('/api/admin/unbind-device', (req, res) => {
   }
 
   delete db.users[idx].lastCheckInDevice;
+  logActivity('ADMIN_UNBIND_DEVICE', userId, { 
+    unboundBy: 'admin',
+    targetUser: userId
+  });
+  
   writeDB(db);
   res.json({ success: true, user: db.users[idx] });
+});
+
+// ===== ADVANCED DEVICE MANAGEMENT ENDPOINTS =====
+
+// Get all registered devices
+app.get('/api/admin/devices', (req, res) => {
+  const db = readDB();
+  const devices = (db.deviceRegistry || []).map((d: any) => ({
+    ...d,
+    userName: db.users.find((u: any) => u.id === d.userId)?.username || 'Unknown',
+    status: d.blocked ? 'blocked' : d.approved ? 'approved' : 'pending'
+  }));
+  res.json(devices);
+});
+
+// Get device details and history
+app.get('/api/admin/devices/:deviceId', (req, res) => {
+  const { deviceId } = req.params;
+  const db = readDB();
+  
+  const device = (db.deviceRegistry || []).find((d: any) => d.id === deviceId);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+  
+  const userDeviceLogs = getActivityLogs({ 
+    category: 'DEVICE_*',
+    limit: 100
+  }).filter((l: any) => l.details?.deviceFingerprint === device.fingerprint || 
+                        l.userId === device.userId);
+  
+  res.json({ device, logs: userDeviceLogs });
+});
+
+// Approve new device
+app.post('/api/admin/devices/:deviceId/approve', (req, res) => {
+  const { deviceId } = req.params;
+  const db = readDB();
+  
+  const device = (db.deviceRegistry || []).find((d: any) => d.id === deviceId);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+  
+  device.approved = true;
+  logActivity('ADMIN_APPROVE_DEVICE', device.userId, {
+    deviceId,
+    fingerprint: device.fingerprint
+  });
+  
+  writeDB(db);
+  res.json({ success: true, device });
+});
+
+// Block/flag suspicious device
+app.post('/api/admin/devices/:deviceId/block', (req, res) => {
+  const { deviceId } = req.params;
+  const { reason } = req.body;
+  const db = readDB();
+  
+  const device = (db.deviceRegistry || []).find((d: any) => d.id === deviceId);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+  
+  device.blocked = true;
+  device.blockedReason = reason;
+  device.blockedAt = new Date().toISOString();
+  
+  logActivity('ADMIN_BLOCK_DEVICE', device.userId, {
+    deviceId,
+    fingerprint: device.fingerprint,
+    reason
+  });
+  
+  writeDB(db);
+  res.json({ success: true, device });
+});
+
+// ===== ADVANCED ACTIVITY LOGS ENDPOINTS =====
+
+// Get filtered activity logs
+app.get('/api/admin/activity-logs', (req, res) => {
+  const { category, userId, severity, startTime, endTime, limit } = req.query;
+  
+  const logs = getActivityLogs({
+    category: category as string,
+    userId: userId as string,
+    severity: severity as string,
+    startTime: startTime as string,
+    endTime: endTime as string,
+    limit: limit ? parseInt(limit as string) : 500
+  });
+  
+  res.json(logs);
+});
+
+// Export activity logs as JSON
+app.get('/api/admin/activity-logs/export', (req, res) => {
+  const db = readDB();
+  const logs = db.activityLogs || [];
+  
+  res.setHeader('Content-Disposition', 'attachment; filename="activity-logs.json"');
+  res.setHeader('Content-Type', 'application/json');
+  res.json(logs);
+});
+
+// Get activity summary/statistics
+app.get('/api/admin/activity-stats', (req, res) => {
+  const db = readDB();
+  const logs = db.activityLogs || [];
+  
+  const stats = {
+    totalLogs: logs.length,
+    byCategory: {} as any,
+    byUser: {} as any,
+    warnings: logs.filter((l: any) => l.severity === 'warning').length,
+    lastHourCount: logs.filter((l: any) => {
+      const logTime = new Date(l.timestamp).getTime();
+      const oneHourAgo = Date.now() - 3600000;
+      return logTime > oneHourAgo;
+    }).length
+  };
+  
+  logs.forEach((log: any) => {
+    stats.byCategory[log.category] = (stats.byCategory[log.category] || 0) + 1;
+    stats.byUser[log.userId] = (stats.byUser[log.userId] || 0) + 1;
+  });
+  
+  res.json(stats);
 });
 
 // 11. Factory Reset (Reset ke pengaturan pabrik/awal)

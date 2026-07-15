@@ -10,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
   Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp,
-  Menu, ClipboardList, Megaphone, Map, Terminal
+  Menu, ClipboardList, Megaphone, Map, Terminal, Smartphone, BarChart3
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapView from './components/MapView';
@@ -68,7 +68,7 @@ export default function App() {
   };
   const [radarLiveUpdates, setRadarLiveUpdates] = useState<Record<string, { lat: number, lng: number }>>({});
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox' | 'history' | 'stats' | 'logs'>('dashboard');
-  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs'>('radar');
+  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs' | 'devices' | 'activity-logs'>('radar');
   const [radarFilterDivision, setRadarFilterDivision] = useState<string>('all');
   const [radarFilterStatus, setRadarFilterStatus] = useState<string>('all');
 
@@ -137,6 +137,24 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [pendingWorkers, setPendingWorkers] = useState<User[]>([]);
   const [allWorkers, setAllWorkers] = useState<User[]>([]);
+  
+  // Advanced Activity Logs & Device Management
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [registeredDevices, setRegisteredDevices] = useState<any[]>([]);
+  const [activityLogsFilter, setActivityLogsFilter] = useState({
+    category: '',
+    userId: '',
+    severity: '',
+    startTime: '',
+    endTime: ''
+  });
+  const [activityStats, setActivityStats] = useState({
+    totalLogs: 0,
+    warnings: 0,
+    lastHourCount: 0,
+    byCategory: {} as any,
+    byUser: {} as any
+  });
 
   // 3. Clock & Server Time Synchronization
   const [serverTime, setServerTime] = useState<Date>(new Date());
@@ -733,6 +751,28 @@ export default function App() {
     }
   }, [activeTab, adminSubTab]);
 
+  // Fetch advanced activity logs and stats when tabs are active
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'activity-logs') {
+      fetchActivityLogs();
+      fetchActivityStats();
+      const interval = setInterval(() => {
+        fetchActivityLogs();
+        fetchActivityStats();
+      }, 5000); // Refresh every 5 seconds
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, adminSubTab, activityLogsFilter]);
+
+  // Fetch devices when devices tab is active
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'devices') {
+      fetchRegisteredDevices();
+      const interval = setInterval(fetchRegisteredDevices, 10000); // Refresh every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, adminSubTab]);
+
   const fetchAttendanceHistory = async () => {
     try {
       const res = await fetch('/api/attendance/history');
@@ -845,6 +885,48 @@ export default function App() {
             setCurrentUser(me);
         }
     } catch(e){}
+  };
+
+  // Fetch activity logs with filters
+  const fetchActivityLogs = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (activityLogsFilter.category) params.append('category', activityLogsFilter.category);
+      if (activityLogsFilter.userId) params.append('userId', activityLogsFilter.userId);
+      if (activityLogsFilter.severity) params.append('severity', activityLogsFilter.severity);
+      if (activityLogsFilter.startTime) params.append('startTime', activityLogsFilter.startTime);
+      if (activityLogsFilter.endTime) params.append('endTime', activityLogsFilter.endTime);
+      params.append('limit', '500');
+
+      const res = await fetch(`/api/admin/activity-logs?${params}`);
+      const data = await res.json();
+      setActivityLogs(data);
+    } catch (e) {
+      console.error('Failed to fetch activity logs', e);
+    }
+  };
+
+  // Fetch registered devices
+  const fetchRegisteredDevices = async () => {
+    try {
+      const res = await fetch('/api/admin/devices');
+      const data = await res.json();
+      setRegisteredDevices(data);
+    } catch (e) {
+      console.error('Failed to fetch devices', e);
+    }
+  };
+
+  // Fetch activity statistics
+  const fetchActivityStats = async () => {
+    try {
+      const res = await fetch('/api/admin/activity-stats');
+      const data = await res.json();
+      setActivityStats(data);
+    } catch (e) {
+      console.error('Failed to fetch activity stats', e);
+    }
+  };
   };
 
   // --------------------------------------------------------------------------
@@ -1084,6 +1166,7 @@ export default function App() {
           userId: currentUser.id,
           lat: deviceLat,
           lng: deviceLng,
+          device: deviceFingerprint,
           isOvertimePending
         })
       });
@@ -2394,6 +2477,42 @@ const monthlyKPIData = React.useMemo(() => {
                 >
                   <Unlock className="w-4 h-4 shrink-0" />
                   <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Unbind Perangkat</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('devices');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Manajemen Perangkat"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'devices'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Perangkat</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('activity-logs');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Activity Logs"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'activity-logs'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Activity</span>
                 </button>
 
                 <button
