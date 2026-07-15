@@ -1134,7 +1134,7 @@ app.post('/api/attendance/approve-pending', (req, res) => {
   }
 
   const record = db.attendanceRecords[recordIdx];
-  const user = db.users.find((u: any) => u.id === record.userId);
+  const user = db.users.find((u: any) => String(u.id) === String(record.userId));
 
   if (action === 'approve') {
     record.status = 'approved';
