@@ -10,7 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Camera, ShieldAlert, FileText, RefreshCw, Bell, Plus,
   Trash2, Unlock, Globe, Building2, Upload, Lock, ShieldCheck, CreditCard, ChevronRight, ChevronLeft,
   Filter, Eye, HelpCircle, Activity, Landmark, Compass, Download, X, Palette, History, TrendingUp,
-  Menu, ClipboardList, Megaphone, Map, Terminal
+  Menu, ClipboardList, Megaphone, Map, Terminal, Smartphone, BarChart3
 } from 'lucide-react';
 import { User, AttendanceRecord, LeaveRequest, OfficeLocation, Announcement, AppConfig } from './types';
 import MapView from './components/MapView';
@@ -68,7 +68,7 @@ export default function App() {
   };
   const [radarLiveUpdates, setRadarLiveUpdates] = useState<Record<string, { lat: number, lng: number }>>({});
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'profile' | 'admin' | 'inbox' | 'history' | 'stats' | 'logs'>('dashboard');
-  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs'>('radar');
+  const [adminSubTab, setAdminSubTab] = useState<'radar' | 'approvals' | 'locations' | 'unbind' | 'announcements' | 'settings' | 'export' | 'reset' | 'users' | 'demo' | 'logs' | 'devices' | 'activity-logs'>('radar');
   const [radarFilterDivision, setRadarFilterDivision] = useState<string>('all');
   const [radarFilterStatus, setRadarFilterStatus] = useState<string>('all');
 
@@ -137,6 +137,24 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [pendingWorkers, setPendingWorkers] = useState<User[]>([]);
   const [allWorkers, setAllWorkers] = useState<User[]>([]);
+  
+  // Advanced Activity Logs & Device Management
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [registeredDevices, setRegisteredDevices] = useState<any[]>([]);
+  const [activityLogsFilter, setActivityLogsFilter] = useState({
+    category: '',
+    userId: '',
+    severity: '',
+    startTime: '',
+    endTime: ''
+  });
+  const [activityStats, setActivityStats] = useState({
+    totalLogs: 0,
+    warnings: 0,
+    lastHourCount: 0,
+    byCategory: {} as any,
+    byUser: {} as any
+  });
 
   // 3. Clock & Server Time Synchronization
   const [serverTime, setServerTime] = useState<Date>(new Date());
@@ -193,14 +211,22 @@ export default function App() {
   const [showPermissionPromptModal, setShowPermissionPromptModal] = useState(false);
   const [showCheckInMapModal, setShowCheckInMapModal] = useState(false);
   const [mapModalAction, setMapModalAction] = useState<'checkin' | 'checkout' | null>(null);
-  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; persistent?: boolean }>>([]);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success', persistent: boolean = false) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    setToasts(prev => [...prev, { id, message, type, persistent }]);
+    
+    // Auto-dismiss after 4 seconds only if not persistent
+    if (!persistent) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, 4000);
+    }
+  };
+  
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
   const [authCredential, setAuthCredential] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -419,11 +445,15 @@ export default function App() {
   }, [deviceLat, deviceLng, locations, activeTab, currentGeofenceStatus]);
 
   useEffect(() => {
+    // Initialize device fingerprint only once on app mount
+    generateDeviceFingerprint();
+  }, []);
+
+  useEffect(() => {
     fetchConfig();
     fetchLocations();
     fetchAnnouncements();
     syncServerTime();
-    generateDeviceFingerprint();
 
     // Constant synchronized clock ticker
     const interval = setInterval(() => {
@@ -721,6 +751,28 @@ export default function App() {
     }
   }, [activeTab, adminSubTab]);
 
+  // Fetch advanced activity logs and stats when tabs are active
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'activity-logs') {
+      fetchActivityLogs();
+      fetchActivityStats();
+      const interval = setInterval(() => {
+        fetchActivityLogs();
+        fetchActivityStats();
+      }, 5000); // Refresh every 5 seconds
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, adminSubTab, activityLogsFilter]);
+
+  // Fetch devices when devices tab is active
+  useEffect(() => {
+    if (activeTab === 'admin' && adminSubTab === 'devices') {
+      fetchRegisteredDevices();
+      const interval = setInterval(fetchRegisteredDevices, 10000); // Refresh every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, adminSubTab]);
+
   const fetchAttendanceHistory = async () => {
     try {
       const res = await fetch('/api/attendance/history');
@@ -833,6 +885,47 @@ export default function App() {
             setCurrentUser(me);
         }
     } catch(e){}
+  };
+
+  // Fetch activity logs with filters
+  const fetchActivityLogs = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (activityLogsFilter.category) params.append('category', activityLogsFilter.category);
+      if (activityLogsFilter.userId) params.append('userId', activityLogsFilter.userId);
+      if (activityLogsFilter.severity) params.append('severity', activityLogsFilter.severity);
+      if (activityLogsFilter.startTime) params.append('startTime', activityLogsFilter.startTime);
+      if (activityLogsFilter.endTime) params.append('endTime', activityLogsFilter.endTime);
+      params.append('limit', '500');
+
+      const res = await fetch(`/api/admin/activity-logs?${params}`);
+      const data = await res.json();
+      setActivityLogs(data);
+    } catch (e) {
+      console.error('Failed to fetch activity logs', e);
+    }
+  };
+
+  // Fetch registered devices
+  const fetchRegisteredDevices = async () => {
+    try {
+      const res = await fetch('/api/admin/devices');
+      const data = await res.json();
+      setRegisteredDevices(data);
+    } catch (e) {
+      console.error('Failed to fetch devices', e);
+    }
+  };
+
+  // Fetch activity statistics
+  const fetchActivityStats = async () => {
+    try {
+      const res = await fetch('/api/admin/activity-stats');
+      const data = await res.json();
+      setActivityStats(data);
+    } catch (e) {
+      console.error('Failed to fetch activity stats', e);
+    }
   };
 
   // --------------------------------------------------------------------------
@@ -1072,6 +1165,7 @@ export default function App() {
           userId: currentUser.id,
           lat: deviceLat,
           lng: deviceLng,
+          device: deviceFingerprint,
           isOvertimePending
         })
       });
@@ -1335,14 +1429,15 @@ export default function App() {
     });
     if (res.ok) {
       if (action === 'approve') {
-        showToast("Absensi berhasil disahkan!", "success");
+        showToast("✓ Absensi berhasil disahkan! Jatah telah diperbarui.", "success", true);
       } else {
-        showToast("Absensi berhasil ditolak.", "info");
+        showToast("Absensi berhasil ditolak.", "info", true);
       }
       fetchAttendanceHistory();
       fetchAllWorkers(); // Refresh quotas on admin dashboard too!
+      syncCurrentUser(); // Refresh current user's quota if they are viewing
     } else {
-      showToast("Gagal memproses persetujuan absensi.", "error");
+      showToast("Gagal memproses persetujuan absensi.", "error", true);
     }
   };
 
@@ -1370,6 +1465,8 @@ export default function App() {
     setSelectedPendingAttendanceIds([]);
     setIsBulkApprovingAttendance(false);
     fetchAttendanceHistory();
+    fetchAllWorkers();
+    syncCurrentUser(); // Refresh current user's quota
   };
 
   const handleApproveLeaveRequest = async (requestId: string, approve: boolean, adminRemarks?: string) => {
@@ -2379,6 +2476,42 @@ const monthlyKPIData = React.useMemo(() => {
                 >
                   <Unlock className="w-4 h-4 shrink-0" />
                   <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Unbind Perangkat</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('devices');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Manajemen Perangkat"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'devices'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Perangkat</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setAdminSubTab('activity-logs');
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  title="Activity Logs"
+                  className={`w-full ${isSidebarCollapsed ? 'justify-center px-2 py-2' : 'justify-start px-3 py-2'} rounded-lg text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                    activeTab === 'admin' && adminSubTab === 'activity-logs'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'hover:bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4 shrink-0" />
+                  <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Activity</span>
                 </button>
 
                 <button
@@ -4474,6 +4607,7 @@ const monthlyKPIData = React.useMemo(() => {
                                         if (res.ok) {
                                           showCustomAlert("Pengaturan jatah libur khusus untuk " + worker.username + " berhasil disimpan: " + newLibur + " hari.", "Sukses");
                                           fetchAllWorkers();
+                                          syncCurrentUser();
                                         }
                                       }
                                     }}
@@ -4693,15 +4827,18 @@ const monthlyKPIData = React.useMemo(() => {
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-emerald-100/40'
                 : toast.type === 'error'
                 ? 'bg-rose-50 text-rose-800 border-rose-200 shadow-rose-100/40'
+                : toast.type === 'warning'
+                ? 'bg-amber-50 text-amber-800 border-amber-200 shadow-amber-100/40'
                 : 'bg-slate-50 text-slate-800 border-slate-200 shadow-slate-100/40'
-            }`}
+            } ${toast.persistent ? 'ring-2 ring-offset-1 ring-slate-300' : ''}`}
           >
             <div className={`w-1.5 h-1.5 rounded-full ${
-              toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-rose-500' : 'bg-slate-400'
+              toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-rose-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-slate-400'
             }`} />
             <span className="flex-1 text-slate-800">{toast.message}</span>
+            {toast.persistent && <span className="text-xs text-slate-500 ml-1">●</span>}
             <button
-              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              onClick={() => dismissToast(toast.id)}
               className="text-slate-400 hover:text-slate-600 font-bold ml-2 text-sm pointer-events-auto cursor-pointer"
             >
               ×
